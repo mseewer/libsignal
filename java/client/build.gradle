@@ -22,10 +22,15 @@ sourceSets {
             srcDir '../shared/resources'
         }
     }
+    test {
+        java {
+            srcDir '../shared/test/java'
+        }
+    }
 }
 
 dependencies {
-    testImplementation 'junit:junit:4.12'
+    testImplementation 'junit:junit:4.13'
 }
 
 test {

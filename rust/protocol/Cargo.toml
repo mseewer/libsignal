@@ -7,7 +7,7 @@
 name = "libsignal-protocol"
 version = "0.1.0"
 authors = ["Signal Messenger LLC"]
-edition = "2018"
+edition = "2021"
 license = "AGPL-3.0-only"
 
 [dependencies]
@@ -21,7 +21,7 @@ curve25519-dalek = { version = "4.0.0", features = ["digest"] }
 hkdf = "0.12"
 hmac = "0.12"
 itertools = "0.10.5"
-prost = "0.9"
+prost = "0.12"
 rand = "0.8"
 sha2 = "0.10"
 static_assertions = "1.1"
@@ -34,8 +34,16 @@ uuid = "1.1.2"
 displaydoc = "0.2"
 thiserror = "1.0.30"
 pqcrypto-kyber = { version = "0.7.6", default-features = false, features = ["std"] }
+pqcrypto-ml-kem = { version = "0.8.0", default-features = false, features = ["std"], package = "pqcrypto-kyber" }
 pqcrypto-traits = "0.3.4"
 pqcrypto-frodokexp = { git = "https://gitlab.com/mseewer/semester-project-implementation" }
+
+[features]
+kyber768 = []
+# ML-KEM matches the NIST standard version of Kyber. It may still change
+# incompatibly until the final version of the standard is published and
+# libsignal will update to match.
+mlkem1024 = []
 
 [dev-dependencies]
 criterion = "0.5"
@@ -45,7 +53,7 @@ futures-util = "0.3.7"
 env_logger = "0.10.0"
 
 [build-dependencies]
-prost-build = "0.9"
+prost-build = "0.12"
 
 [[bench]]
 name = "curve"
@@ -66,6 +74,7 @@ harness = false
 [[bench]]
 name = "kem"
 harness = false
+required-features = ["kyber768"]
 
 [[bench]]
 name = "skem"

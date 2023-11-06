@@ -24,7 +24,7 @@ pub mod node;
 #[macro_use]
 mod support;
 
-pub use support::describe_panic;
+pub use support::{describe_panic, AsyncRuntime};
 
 pub mod crypto;
 pub mod protocol;
@@ -43,6 +43,9 @@ pub mod zkgroup;
 #[cfg(feature = "ffi")]
 pub mod ias;
 
+#[cfg(feature = "node")]
+pub mod net;
+
 // Desktop does not use SVR
 #[cfg(any(feature = "jni", feature = "ffi"))]
 mod pin;
@@ -56,3 +59,10 @@ mod io;
 
 #[cfg(feature = "signal-media")]
 pub mod media;
+
+// These APIs are only useful for tests. To save on code size, we omit them when building for
+// (1) Android, and (2) iOS devices (but include them on simulators).
+// We'd like to use target_abi to detect iOS devices, but that's not stable:
+// https://github.com/rust-lang/rust/issues/80970
+#[cfg(not(any(target_os = "android", ios_device_as_detected_in_build_rs)))]
+mod testing;

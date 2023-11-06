@@ -11,6 +11,13 @@ type Uuid = Buffer;
 /// what's important is that it's an integer less than Number.MAX_SAFE_INTEGER.
 type Timestamp = number;
 
+type LookupResponse = Map<string, LookupResponseEntry>;
+
+interface LookupResponseEntry {
+  readonly aci: string | undefined;
+  readonly pni: string | undefined;
+}
+
 export abstract class IdentityKeyStore {
   _getIdentityKey(): Promise<PrivateKey>;
   _getLocalRegistrationId(): Promise<number>;
@@ -51,6 +58,9 @@ export abstract class InputStream {
   _skip(amount: number): Promise<void>;
 }
 
+export abstract class SyncInputStream extends Buffer {
+}
+
 interface Wrapper<T> {
   readonly _nativeHandle: T
 }
@@ -72,6 +82,18 @@ export function AuthCredentialResponse_CheckValidContents(buffer: Buffer): void;
 export function AuthCredentialWithPniResponse_CheckValidContents(buffer: Buffer): void;
 export function AuthCredentialWithPni_CheckValidContents(buffer: Buffer): void;
 export function AuthCredential_CheckValidContents(buffer: Buffer): void;
+export function BackupAuthCredentialPresentation_CheckValidContents(presentationBytes: Buffer): void;
+export function BackupAuthCredentialPresentation_Verify(presentationBytes: Buffer, now: Timestamp, serverParamsBytes: Buffer): void;
+export function BackupAuthCredentialRequestContext_CheckValidContents(contextBytes: Buffer): void;
+export function BackupAuthCredentialRequestContext_GetRequest(contextBytes: Buffer): Buffer;
+export function BackupAuthCredentialRequestContext_New(backupKey: Buffer, uuid: Uuid): Buffer;
+export function BackupAuthCredentialRequestContext_ReceiveResponse(contextBytes: Buffer, responseBytes: Buffer, paramsBytes: Buffer, expectedReceiptLevel: Buffer): Buffer;
+export function BackupAuthCredentialRequest_CheckValidContents(requestBytes: Buffer): void;
+export function BackupAuthCredentialRequest_IssueDeterministic(requestBytes: Buffer, redemptionTime: Timestamp, receiptLevel: Buffer, paramsBytes: Buffer, randomness: Buffer): Buffer;
+export function BackupAuthCredentialResponse_CheckValidContents(responseBytes: Buffer): void;
+export function BackupAuthCredential_CheckValidContents(paramsBytes: Buffer): void;
+export function BackupAuthCredential_GetBackupId(credentialBytes: Buffer): Buffer;
+export function BackupAuthCredential_PresentDeterministic(credentialBytes: Buffer, serverParamsBytes: Buffer, randomness: Buffer): Buffer;
 export function CallLinkAuthCredentialPresentation_CheckValidContents(presentationBytes: Buffer): void;
 export function CallLinkAuthCredentialPresentation_GetUserId(presentationBytes: Buffer): Serialized<UuidCiphertext>;
 export function CallLinkAuthCredentialPresentation_Verify(presentationBytes: Buffer, now: Timestamp, serverParamsBytes: Buffer, callLinkParamsBytes: Buffer): void;
@@ -86,9 +108,11 @@ export function CallLinkSecretParams_DecryptUserId(paramsBytes: Buffer, userId: 
 export function CallLinkSecretParams_DeriveFromRootKey(rootKey: Buffer): Buffer;
 export function CallLinkSecretParams_GetPublicParams(paramsBytes: Buffer): Buffer;
 export function Cds2ClientState_New(mrenclave: Buffer, attestationMsg: Buffer, currentTimestamp: Timestamp): SgxClientState;
+export function CdsiLookup(asyncRuntime: Wrapper<TokioAsyncContext>, connectionManager: Wrapper<ConnectionManager>, username: string, password: string, request: Wrapper<LookupRequest>, timeoutMillis: number): Promise<LookupResponse>;
 export function CiphertextMessage_FromPlaintextContent(m: Wrapper<PlaintextContent>): CiphertextMessage;
 export function CiphertextMessage_Serialize(obj: Wrapper<CiphertextMessage>): Buffer;
 export function CiphertextMessage_Type(msg: Wrapper<CiphertextMessage>): number;
+export function ConnectionManager_new(environment: number): ConnectionManager;
 export function CreateCallLinkCredentialPresentation_CheckValidContents(presentationBytes: Buffer): void;
 export function CreateCallLinkCredentialPresentation_Verify(presentationBytes: Buffer, roomId: Buffer, now: Timestamp, serverParamsBytes: Buffer, callLinkParamsBytes: Buffer): void;
 export function CreateCallLinkCredentialRequestContext_CheckValidContents(contextBytes: Buffer): void;
@@ -164,6 +188,10 @@ export function KyberPublicKey_Equals(lhs: Wrapper<KyberPublicKey>, rhs: Wrapper
 export function KyberPublicKey_Serialize(obj: Wrapper<KyberPublicKey>): Buffer;
 export function KyberSecretKey_Deserialize(data: Buffer): KyberSecretKey;
 export function KyberSecretKey_Serialize(obj: Wrapper<KyberSecretKey>): Buffer;
+export function LookupRequest_addAciAndAccessKey(request: Wrapper<LookupRequest>, aci: Buffer, accessKey: Buffer): void;
+export function LookupRequest_addE164(request: Wrapper<LookupRequest>, e164: string): void;
+export function LookupRequest_new(): LookupRequest;
+export function LookupRequest_setReturnAcisWithoutUaks(request: Wrapper<LookupRequest>, returnAcisWithoutUaks: boolean): void;
 export function Mp4Sanitizer_Sanitize(input: InputStream, len: Buffer): Promise<SanitizedMetadata>;
 export function PlaintextContent_Deserialize(data: Buffer): PlaintextContent;
 export function PlaintextContent_FromDecryptionErrorMessage(m: Wrapper<DecryptionErrorMessage>): PlaintextContent;
@@ -344,6 +372,29 @@ export function SignedPreKeyRecord_GetSignature(obj: Wrapper<SignedPreKeyRecord>
 export function SignedPreKeyRecord_GetTimestamp(obj: Wrapper<SignedPreKeyRecord>): Timestamp;
 export function SignedPreKeyRecord_New(id: number, timestamp: Timestamp, pubKey: Wrapper<PublicKey>, privKey: Wrapper<PrivateKey>, signature: Buffer): SignedPreKeyRecord;
 export function SignedPreKeyRecord_Serialize(obj: Wrapper<SignedPreKeyRecord>): Buffer;
+export function TESTING_CdsiLookupResponseConvert(): LookupResponse;
+export function TESTING_ErrorOnBorrowAsync(_input: null): Promise<void>;
+export function TESTING_ErrorOnBorrowIo(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, _input: null): Promise<void>;
+export function TESTING_ErrorOnBorrowSync(_input: null): void;
+export function TESTING_ErrorOnReturnAsync(_needsCleanup: null): Promise<null>;
+export function TESTING_ErrorOnReturnIo(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, _needsCleanup: null): Promise<null>;
+export function TESTING_ErrorOnReturnSync(_needsCleanup: null): null;
+export function TESTING_FutureFailure(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, _input: number): Promise<number>;
+export function TESTING_FutureSuccess(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, input: number): Promise<number>;
+export function TESTING_NonSuspendingBackgroundThreadRuntime_New(): NonSuspendingBackgroundThreadRuntime;
+export function TESTING_PanicInBodyAsync(_input: null): Promise<void>;
+export function TESTING_PanicInBodyIo(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, _input: null): Promise<void>;
+export function TESTING_PanicInBodySync(_input: null): void;
+export function TESTING_PanicOnBorrowAsync(_input: null): Promise<void>;
+export function TESTING_PanicOnBorrowIo(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, _input: null): Promise<void>;
+export function TESTING_PanicOnBorrowSync(_input: null): void;
+export function TESTING_PanicOnLoadAsync(_needsCleanup: null, _input: null): Promise<void>;
+export function TESTING_PanicOnLoadIo(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, _needsCleanup: null, _input: null): Promise<void>;
+export function TESTING_PanicOnLoadSync(_needsCleanup: null, _input: null): void;
+export function TESTING_PanicOnReturnAsync(_needsCleanup: null): Promise<null>;
+export function TESTING_PanicOnReturnIo(asyncRuntime: Wrapper<NonSuspendingBackgroundThreadRuntime>, _needsCleanup: null): Promise<null>;
+export function TESTING_PanicOnReturnSync(_needsCleanup: null): null;
+export function TokioAsyncContext_new(): TokioAsyncContext;
 export function UnidentifiedSenderMessageContent_Deserialize(data: Buffer): UnidentifiedSenderMessageContent;
 export function UnidentifiedSenderMessageContent_GetContentHint(m: Wrapper<UnidentifiedSenderMessageContent>): number;
 export function UnidentifiedSenderMessageContent_GetContents(obj: Wrapper<UnidentifiedSenderMessageContent>): Buffer;
@@ -352,7 +403,7 @@ export function UnidentifiedSenderMessageContent_GetMsgType(m: Wrapper<Unidentif
 export function UnidentifiedSenderMessageContent_GetSenderCert(m: Wrapper<UnidentifiedSenderMessageContent>): SenderCertificate;
 export function UnidentifiedSenderMessageContent_New(message: Wrapper<CiphertextMessage>, sender: Wrapper<SenderCertificate>, contentHint: number, groupId: Buffer | null): UnidentifiedSenderMessageContent;
 export function UnidentifiedSenderMessageContent_Serialize(obj: Wrapper<UnidentifiedSenderMessageContent>): Buffer;
-export function UsernameLink_Create(username: string): Buffer;
+export function UsernameLink_Create(username: string, entropy: Buffer | null): Buffer;
 export function UsernameLink_DecryptUsername(entropy: Buffer, encryptedUsername: Buffer): string;
 export function Username_CandidatesFrom(nickname: string, minLen: number, maxLen: number): string;
 export function Username_Hash(username: string): Buffer;
@@ -362,6 +413,7 @@ export function UuidCiphertext_CheckValidContents(buffer: Buffer): void;
 export function ValidatingMac_Finalize(mac: Wrapper<ValidatingMac>): number;
 export function ValidatingMac_Initialize(key: Buffer, chunkSize: number, digests: Buffer): ValidatingMac;
 export function ValidatingMac_Update(mac: Wrapper<ValidatingMac>, bytes: Buffer, offset: number, length: number): number;
+export function WebpSanitizer_Sanitize(input: SyncInputStream, len: Buffer): void;
 export function initLogger(maxLevel: LogLevel, callback: (level: LogLevel, target: string, file: string | null, line: number | null, message: string) => void): void
 interface Aes256GcmSiv { readonly __type: unique symbol; }
 interface AuthCredential { readonly __type: unique symbol; }
@@ -369,6 +421,7 @@ interface AuthCredentialResponse { readonly __type: unique symbol; }
 interface AuthCredentialWithPni { readonly __type: unique symbol; }
 interface AuthCredentialWithPniResponse { readonly __type: unique symbol; }
 interface CiphertextMessage { readonly __type: unique symbol; }
+interface ConnectionManager { readonly __type: unique symbol; }
 interface DecryptionErrorMessage { readonly __type: unique symbol; }
 interface ExpiringProfileKeyCredential { readonly __type: unique symbol; }
 interface ExpiringProfileKeyCredentialResponse { readonly __type: unique symbol; }
@@ -382,6 +435,8 @@ interface KyberKeyPair { readonly __type: unique symbol; }
 interface KyberPreKeyRecord { readonly __type: unique symbol; }
 interface KyberPublicKey { readonly __type: unique symbol; }
 interface KyberSecretKey { readonly __type: unique symbol; }
+interface LookupRequest { readonly __type: unique symbol; }
+interface NonSuspendingBackgroundThreadRuntime { readonly __type: unique symbol; }
 interface PlaintextContent { readonly __type: unique symbol; }
 interface PreKeyBundle { readonly __type: unique symbol; }
 interface PreKeyRecord { readonly __type: unique symbol; }
@@ -412,6 +467,7 @@ interface SessionRecord { readonly __type: unique symbol; }
 interface SgxClientState { readonly __type: unique symbol; }
 interface SignalMessage { readonly __type: unique symbol; }
 interface SignedPreKeyRecord { readonly __type: unique symbol; }
+interface TokioAsyncContext { readonly __type: unique symbol; }
 interface UnidentifiedSenderMessageContent { readonly __type: unique symbol; }
 interface UuidCiphertext { readonly __type: unique symbol; }
 interface ValidatingMac { readonly __type: unique symbol; }

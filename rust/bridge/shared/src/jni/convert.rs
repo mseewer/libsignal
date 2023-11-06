@@ -7,10 +7,10 @@ use jni::sys::{jbyte, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use libsignal_protocol::*;
 use paste::paste;
-use std::convert::TryInto;
+
 use std::ops::Deref;
 
-use crate::io::InputStream;
+use crate::io::{InputStream, SyncInputStream};
 use crate::support::{Array, FixedLengthBincodeSerializable, Serialized};
 
 use super::*;
@@ -130,7 +130,7 @@ where
 /// Implementers should also see the `jni_result_type` macro in `convert.rs`.
 pub trait ResultTypeInfo<'a>: Sized {
     /// The JNI form of the result (e.g. `jint`).
-    type ResultType;
+    type ResultType: Into<JValueOwned<'a>>;
     /// Converts the data in `self` to the JNI type, similar to `try_into()`.
     fn convert_into(self, env: &mut JNIEnv<'a>) -> SignalJniResult<Self::ResultType>;
 }
@@ -309,7 +309,7 @@ impl<'storage, 'param: 'storage, 'context: 'param> ArgTypeInfo<'storage, 'param,
     }
 }
 
-macro_rules! store {
+macro_rules! bridge_trait {
     ($name:ident) => {
         paste! {
             impl<'storage, 'param: 'storage, 'context: 'param> ArgTypeInfo<'storage, 'param, 'context>
@@ -333,13 +333,14 @@ macro_rules! store {
     };
 }
 
-store!(IdentityKeyStore);
-store!(PreKeyStore);
-store!(SenderKeyStore);
-store!(SessionStore);
-store!(SignedPreKeyStore);
-store!(KyberPreKeyStore);
-store!(InputStream);
+bridge_trait!(IdentityKeyStore);
+bridge_trait!(PreKeyStore);
+bridge_trait!(SenderKeyStore);
+bridge_trait!(SessionStore);
+bridge_trait!(SignedPreKeyStore);
+bridge_trait!(KyberPreKeyStore);
+bridge_trait!(InputStream);
+bridge_trait!(SyncInputStream);
 
 /// A translation from a Java interface where the implementing class wraps the Rust handle.
 impl<'a> SimpleArgTypeInfo<'a> for CiphertextMessageRef<'a> {
@@ -410,17 +411,18 @@ impl<'a> ResultTypeInfo<'a> for crate::cds2::Cds2Metrics {
     type ResultType = JObject<'a>;
 
     fn convert_into(self, env: &mut JNIEnv<'a>) -> SignalJniResult<Self::ResultType> {
-        let map_args = jni_args!(() -> void);
-        let jclass = env.find_class(jni_class_name!(java.util.HashMap))?;
-        let jobj = env.new_object(jclass, map_args.sig, &map_args.args)?;
+        let jobj = new_object(
+            env,
+            jni_class_name!(java.util.HashMap),
+            jni_args!(() -> void),
+        )?;
         // Fully-qualified so that we don't need to conditionalize the `use`.
         let jmap = jni::objects::JMap::from_env(env, &jobj)?;
 
         let long_class = env.find_class(jni_class_name!(java.lang.Long))?;
         for (k, v) in self.0 {
             let k = k.convert_into(env)?;
-            let args = jni_args!((v => long) -> void);
-            let v = env.new_object(&long_class, args.sig, &args.args)?;
+            let v = new_object(env, &long_class, jni_args!((v => long) -> void))?;
             jmap.put(env, &k, &v)?;
         }
         Ok(jobj)
@@ -594,14 +596,16 @@ impl<'a, const LEN: usize> ResultTypeInfo<'a> for [u8; LEN] {
 impl<'a> ResultTypeInfo<'a> for uuid::Uuid {
     type ResultType = JObject<'a>;
     fn convert_into(self, env: &mut JNIEnv<'a>) -> SignalJniResult<Self::ResultType> {
-        let uuid_class = env.find_class(jni_class_name!(java.util.UUID))?;
         let uuid_bytes: [u8; 16] = *self.as_bytes();
         let (msb, lsb) = uuid_bytes.split_at(8);
-        let args = jni_args!((
-            jlong::from_be_bytes(msb.try_into().expect("correct length")) => long,
-            jlong::from_be_bytes(lsb.try_into().expect("correct length")) => long,
-        ) -> void);
-        Ok(env.new_object(uuid_class, args.sig, &args.args)?)
+        Ok(new_object(
+            env,
+            jni_class_name!(java.util.UUID),
+            jni_args!((
+                jlong::from_be_bytes(msb.try_into().expect("correct length")) => long,
+                jlong::from_be_bytes(lsb.try_into().expect("correct length")) => long,
+            ) -> void),
+        )?)
     }
 }
 
@@ -759,7 +763,9 @@ impl<'a> ResultTypeInfo<'a> for Aci {
 
 impl<'a, T> SimpleArgTypeInfo<'a> for Serialized<T>
 where
-    T: FixedLengthBincodeSerializable + for<'x> serde::Deserialize<'x>,
+    T: FixedLengthBincodeSerializable
+        + for<'x> serde::Deserialize<'x>
+        + partial_default::PartialDefault,
 {
     type ArgType = JByteArray<'a>;
 
@@ -775,7 +781,7 @@ where
             "{} should have been validated on creation",
             std::any::type_name::<T>()
         );
-        let result: T = bincode::deserialize(bytes).unwrap_or_else(|_| {
+        let result: T = zkgroup::deserialize(bytes).unwrap_or_else(|_| {
             panic!(
                 "{} should have been validated on creation",
                 std::any::type_name::<T>()
@@ -827,7 +833,7 @@ where
     type ResultType = JByteArray<'a>;
 
     fn convert_into(self, env: &mut JNIEnv<'a>) -> SignalJniResult<Self::ResultType> {
-        let result = bincode::serialize(self.deref()).expect("can always serialize a value");
+        let result = zkgroup::serialize(self.deref());
         result.convert_into(env)
     }
 }
@@ -946,6 +952,8 @@ macro_rules! jni_arg_type {
     (Serialized<$typ:ident>) => {
         jni::JByteArray<'local>
     };
+
+    (Ignored<$typ:ty>) => (jni::JObject<'local>);
 }
 
 /// Syntactically translates `bridge_fn` result types to JNI types for `cbindgen` and
@@ -976,6 +984,9 @@ macro_rules! jni_result_type {
     };
     (Result<$typ:tt<$($args:tt),+> $(, $_:ty)?>) => {
         jni_result_type!($typ<$($args),+>)
+    };
+    (()) => {
+        ()
     };
     (bool) => {
         jni::jboolean
@@ -1040,6 +1051,9 @@ macro_rules! jni_result_type {
     };
     (Serialized<$typ:ident>) => {
         jni::JByteArray<'local>
+    };
+    (Ignored<$typ:ty>) => {
+        jni::JObject<'local>
     };
     ( $handle:ty ) => {
         jni::ObjectHandle

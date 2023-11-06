@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 
+use std::future::Future;
+
 pub(crate) use paste::paste;
 
 mod serialized;
@@ -182,4 +184,12 @@ macro_rules! bridge_get {
             bridge_get!($typ::$method as [<Get $method:camel>] -> $result $(, $param = $val)*);
         }
     };
+}
+
+/// Abstracts over executing a future with type `F`.
+///
+/// Putting the future type in the trait signature allows runtimes to impose additional
+/// requirements, such as `Send`, on the Futures they can run.
+pub trait AsyncRuntime<F: Future<Output = ()>> {
+    fn run_future(&self, future: F);
 }

@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.util.concurrent.Future;
 import java.util.UUID;
 import java.util.Map;
 
@@ -115,6 +116,25 @@ public final class Native {
   public static native void AuthCredentialWithPni_CheckValidContents(byte[] buffer);
 
   public static native void AuthCredential_CheckValidContents(byte[] buffer);
+
+  public static native void BackupAuthCredentialPresentation_CheckValidContents(byte[] presentationBytes);
+  public static native byte[] BackupAuthCredentialPresentation_GetBackupId(byte[] presentationBytes);
+  public static native long BackupAuthCredentialPresentation_GetReceiptLevel(byte[] presentationBytes);
+  public static native void BackupAuthCredentialPresentation_Verify(byte[] presentationBytes, long now, byte[] serverParamsBytes);
+
+  public static native void BackupAuthCredentialRequestContext_CheckValidContents(byte[] contextBytes);
+  public static native byte[] BackupAuthCredentialRequestContext_GetRequest(byte[] contextBytes);
+  public static native byte[] BackupAuthCredentialRequestContext_New(byte[] backupKey, UUID uuid);
+  public static native byte[] BackupAuthCredentialRequestContext_ReceiveResponse(byte[] contextBytes, byte[] responseBytes, byte[] paramsBytes, long expectedReceiptLevel);
+
+  public static native void BackupAuthCredentialRequest_CheckValidContents(byte[] requestBytes);
+  public static native byte[] BackupAuthCredentialRequest_IssueDeterministic(byte[] requestBytes, long redemptionTime, long receiptLevel, byte[] paramsBytes, byte[] randomness);
+
+  public static native void BackupAuthCredentialResponse_CheckValidContents(byte[] responseBytes);
+
+  public static native void BackupAuthCredential_CheckValidContents(byte[] paramsBytes);
+  public static native byte[] BackupAuthCredential_GetBackupId(byte[] credentialBytes);
+  public static native byte[] BackupAuthCredential_PresentDeterministic(byte[] credentialBytes, byte[] serverParamsBytes, byte[] randomness);
 
   public static native void CallLinkAuthCredentialPresentation_CheckValidContents(byte[] presentationBytes);
   public static native byte[] CallLinkAuthCredentialPresentation_GetUserId(byte[] presentationBytes);
@@ -520,6 +540,28 @@ public final class Native {
 
   public static native long Svr2Client_New(byte[] mrenclave, byte[] attestationMsg, long currentTimestamp);
 
+  public static native void TESTING_ErrorOnBorrowAsync(Object input);
+  public static native Future TESTING_ErrorOnBorrowIo(long asyncRuntime, Object input);
+  public static native void TESTING_ErrorOnBorrowSync(Object input);
+  public static native Object TESTING_ErrorOnReturnAsync(Object needsCleanup);
+  public static native Future<Object> TESTING_ErrorOnReturnIo(long asyncRuntime, Object needsCleanup);
+  public static native Object TESTING_ErrorOnReturnSync(Object needsCleanup);
+  public static native Future<Integer> TESTING_FutureFailure(long asyncRuntime, int input);
+  public static native Future<Integer> TESTING_FutureSuccess(long asyncRuntime, int input);
+  public static native void TESTING_NonSuspendingBackgroundThreadRuntime_Destroy(long handle);
+  public static native void TESTING_PanicInBodyAsync(Object input);
+  public static native Future TESTING_PanicInBodyIo(long asyncRuntime, Object input);
+  public static native void TESTING_PanicInBodySync(Object input);
+  public static native void TESTING_PanicOnBorrowAsync(Object input);
+  public static native Future TESTING_PanicOnBorrowIo(long asyncRuntime, Object input);
+  public static native void TESTING_PanicOnBorrowSync(Object input);
+  public static native void TESTING_PanicOnLoadAsync(Object needsCleanup, Object input);
+  public static native Future TESTING_PanicOnLoadIo(long asyncRuntime, Object needsCleanup, Object input);
+  public static native void TESTING_PanicOnLoadSync(Object needsCleanup, Object input);
+  public static native Object TESTING_PanicOnReturnAsync(Object needsCleanup);
+  public static native Future<Object> TESTING_PanicOnReturnIo(long asyncRuntime, Object needsCleanup);
+  public static native Object TESTING_PanicOnReturnSync(Object needsCleanup);
+
   public static native long UnidentifiedSenderMessageContent_Deserialize(byte[] data);
   public static native void UnidentifiedSenderMessageContent_Destroy(long handle);
   public static native int UnidentifiedSenderMessageContent_GetContentHint(long m);
@@ -530,7 +572,7 @@ public final class Native {
   public static native byte[] UnidentifiedSenderMessageContent_GetSerialized(long obj);
   public static native long UnidentifiedSenderMessageContent_New(CiphertextMessage message, long sender, int contentHint, byte[] groupId);
 
-  public static native byte[] UsernameLink_Create(String username);
+  public static native byte[] UsernameLink_Create(String username, byte[] entropy);
   public static native String UsernameLink_DecryptUsername(byte[] entropy, byte[] encryptedUsername);
 
   public static native String Username_CandidatesFrom(String nickname, int minLen, int maxLen);
@@ -544,4 +586,6 @@ public final class Native {
   public static native int ValidatingMac_Finalize(long mac);
   public static native long ValidatingMac_Initialize(byte[] key, int chunkSize, byte[] digests);
   public static native int ValidatingMac_Update(long mac, byte[] bytes, int offset, int length);
+
+  public static native void WebpSanitizer_Sanitize(InputStream input, long len);
 }

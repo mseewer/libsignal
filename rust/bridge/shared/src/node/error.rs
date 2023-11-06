@@ -6,7 +6,8 @@
 use super::*;
 
 use paste::paste;
-use signal_media::sanitize;
+use signal_media::sanitize::mp4::{Error as Mp4Error, ParseError as Mp4ParseError};
+use signal_media::sanitize::webp::{Error as WebpError, ParseError as WebpParseError};
 use std::fmt;
 
 const ERRORS_PROPERTY_NAME: &str = "Errors";
@@ -83,6 +84,7 @@ pub trait SignalNodeError: Sized + fmt::Display {
     }
 }
 
+const RATE_LIMITED_ERROR: &str = "RateLimitedError";
 const IO_ERROR: &str = "IoError";
 const INVALID_MEDIA_INPUT: &str = "InvalidMediaInput";
 const UNSUPPORTED_MEDIA_INPUT: &str = "UnsupportedMediaInput";
@@ -252,7 +254,7 @@ impl SignalNodeError for usernames::UsernameLinkError {
     }
 }
 
-impl SignalNodeError for sanitize::Error {
+impl SignalNodeError for Mp4Error {
     fn throw<'a>(
         self,
         cx: &mut impl Context<'a>,
@@ -260,25 +262,94 @@ impl SignalNodeError for sanitize::Error {
         operation_name: &str,
     ) -> JsResult<'a, JsValue> {
         let name = match &self {
-            sanitize::Error::Io(_) => Some(IO_ERROR),
-            sanitize::Error::Parse(err) => match err.kind {
-                sanitize::ParseError::InvalidBoxLayout => Some(INVALID_MEDIA_INPUT),
-                sanitize::ParseError::InvalidInput => Some(INVALID_MEDIA_INPUT),
-                sanitize::ParseError::MissingRequiredBox(_) => Some(INVALID_MEDIA_INPUT),
-                sanitize::ParseError::TruncatedBox => Some(INVALID_MEDIA_INPUT),
-                sanitize::ParseError::UnsupportedBox(_) => Some(UNSUPPORTED_MEDIA_INPUT),
-                sanitize::ParseError::UnsupportedBoxLayout => Some(UNSUPPORTED_MEDIA_INPUT),
-                sanitize::ParseError::UnsupportedFormat(_) => Some(UNSUPPORTED_MEDIA_INPUT),
+            Mp4Error::Io(_) => IO_ERROR,
+            Mp4Error::Parse(err) => match err.kind {
+                Mp4ParseError::InvalidBoxLayout
+                | Mp4ParseError::InvalidInput
+                | Mp4ParseError::MissingRequiredBox(_)
+                | Mp4ParseError::TruncatedBox => INVALID_MEDIA_INPUT,
+                Mp4ParseError::UnsupportedBox(_)
+                | Mp4ParseError::UnsupportedBoxLayout
+                | Mp4ParseError::UnsupportedFormat(_) => UNSUPPORTED_MEDIA_INPUT,
             },
         };
         let message = self.to_string();
-        match new_js_error(cx, module, name, &message, operation_name, None) {
+        match new_js_error(cx, module, Some(name), &message, operation_name, None) {
             Some(error) => cx.throw(error),
             None => {
                 // Make sure we still throw something.
                 cx.throw_error(&message)
             }
         }
+    }
+}
+
+impl SignalNodeError for WebpError {
+    fn throw<'a>(
+        self,
+        cx: &mut impl Context<'a>,
+        module: Handle<'a, JsObject>,
+        operation_name: &str,
+    ) -> JsResult<'a, JsValue> {
+        let name = match &self {
+            WebpError::Io(_) => IO_ERROR,
+            WebpError::Parse(err) => match err.kind {
+                WebpParseError::InvalidChunkLayout
+                | WebpParseError::InvalidInput
+                | WebpParseError::InvalidVp8lPrefixCode
+                | WebpParseError::MissingRequiredChunk(_)
+                | WebpParseError::TruncatedChunk => INVALID_MEDIA_INPUT,
+                WebpParseError::UnsupportedChunk(_) | WebpParseError::UnsupportedVp8lVersion(_) => {
+                    UNSUPPORTED_MEDIA_INPUT
+                }
+            },
+        };
+        let message = self.to_string();
+        match new_js_error(cx, module, Some(name), &message, operation_name, None) {
+            Some(error) => cx.throw(error),
+            None => {
+                // Make sure we still throw something.
+                cx.throw_error(&message)
+            }
+        }
+    }
+}
+
+impl SignalNodeError for libsignal_net::cdsi::Error {
+    fn throw<'a>(
+        self,
+        cx: &mut impl Context<'a>,
+        module: Handle<'a, JsObject>,
+        operation_name: &str,
+    ) -> JsResult<'a, JsValue> {
+        let (name, extra_props) = match self {
+            Self::RateLimited { retry_after } => (
+                RATE_LIMITED_ERROR,
+                Some({
+                    let props = cx.empty_object();
+                    let retry_after = retry_after.as_secs().convert_into(cx)?;
+                    props.set(cx, "retryAfterSecs", retry_after)?;
+                    props
+                }),
+            ),
+            Self::Net(_)
+            | Self::Protocol
+            | Self::AttestationError
+            | Self::InvalidResponse
+            | Self::ParseError => (IO_ERROR, None),
+        };
+        let message = self.to_string();
+        new_js_error(
+            cx,
+            module,
+            Some(name),
+            &message,
+            operation_name,
+            extra_props,
+        )
+        .map(|e| cx.throw(e))
+        // Make sure we still throw something.
+        .unwrap_or_else(|| cx.throw_error(&message))
     }
 }
 
