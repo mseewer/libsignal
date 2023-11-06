@@ -32,6 +32,7 @@ mod group_cipher;
 mod identity_key;
 pub mod incremental_mac;
 pub mod kem;
+pub mod skem;
 mod proto;
 mod protocol;
 mod ratchet;

@@ -5,6 +5,7 @@
 
 use crate::curve::KeyType;
 use crate::kem;
+use crate::skem;
 
 use displaydoc::Display;
 use thiserror::Error;
@@ -101,4 +102,19 @@ pub enum SignalProtocolError {
     BadKEMKeyLength(kem::KeyType, usize),
     /// bad KEM ciphertext length <{1}> for key with type <{0}>
     BadKEMCiphertextLength(kem::KeyType, usize),
+
+    /// bad SKEM key type <{0:#04x}>
+    BadSKEMKeyType(i32),
+    /// unexpected SKEM key type <{0:#04x}> (expected <{1:#04x}>)
+    WrongSKEMKeyType(u8, u8),
+    /// Mismatch of SKEM Secret Key Material, S Key has type {0} and F Key has type {1}
+    MismatchSKEMSecretKeyMaterial(skem::KeyType, skem::KeyType),
+    /// bad SKEM key length <{1}> for key with type <{0}>
+    BadSKEMKeyLength(skem::KeyType, usize),
+    /// bad KEM ciphertext length <{1}> for key with type <{0}>
+    BadSKEMCiphertextLength(skem::KeyType, usize),
+    /// Public Matrix is not stored
+    SKEMPublicMatrixNotStored,
+    /// Decapsulation failed
+    SKEMDecapsulationError
 }
