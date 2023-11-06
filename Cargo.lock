@@ -276,6 +276,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.68.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "726e4313eb6ec35d2730258ad4e15b547ee75d6afaa1361a922e78e59b7d8078"
+dependencies = [
+ "bitflags 2.3.3",
+ "cexpr",
+ "clang-sys",
+ "lazy_static",
+ "lazycell",
+ "log",
+ "peeking_take_while",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn 2.0.28",
+ "which",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -346,7 +369,7 @@ name = "boring-sys"
 version = "2.1.0"
 source = "git+https://github.com/signalapp/boring?branch=libsignal#3809a7e1ca2f60a9495620da514f8432f148cde7"
 dependencies = [
- "bindgen",
+ "bindgen 0.62.0",
  "cmake",
 ]
 
@@ -1461,6 +1484,7 @@ dependencies = [
  "itertools",
  "log",
  "num_enum",
+ "pqcrypto-frodokexp",
  "pqcrypto-kyber",
  "pqcrypto-traits",
  "proptest",
@@ -1833,6 +1857,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
+name = "pqcrypto-frodokexp"
+version = "0.1.0"
+source = "git+https://gitlab.com/mseewer/semester-project-implementation#a7254e4aed372932995b9a2ebbc8483fd4ef88b0"
+dependencies = [
+ "bindgen 0.68.1",
+ "cc",
+ "glob",
+]
+
+[[package]]
 name = "pqcrypto-internals"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1862,6 +1896,16 @@ name = "pqcrypto-traits"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97e91cb6af081c6daad5fa705f8adb0634c027662052cb3174bdf2957bf07e25"
+
+[[package]]
+name = "prettyplease"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c64d9ba0963cdcea2e1b2230fbae2bab30eb25a174be395c41e764bfb65dd62"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.28",
+]
 
 [[package]]
 name = "proc-macro-crate"
