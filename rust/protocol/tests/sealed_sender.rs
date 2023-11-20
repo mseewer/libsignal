@@ -209,6 +209,7 @@ fn test_sealed_sender() -> Result<(), SignalProtocolError> {
             &mut bob_store.pre_key_store,
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
+            &mut bob_store.frodokexp_pre_key_store,
         )
         .await?;
 
@@ -242,6 +243,7 @@ fn test_sealed_sender() -> Result<(), SignalProtocolError> {
             &mut bob_store.pre_key_store,
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
+            &mut bob_store.frodokexp_pre_key_store,
         )
         .await;
 
@@ -282,6 +284,7 @@ fn test_sealed_sender() -> Result<(), SignalProtocolError> {
             &mut bob_store.pre_key_store,
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
+            &mut bob_store.frodokexp_pre_key_store,
         )
         .await;
 
@@ -515,6 +518,7 @@ fn test_sealed_sender_multi_recipient() -> Result<(), SignalProtocolError> {
             &mut bob_store.pre_key_store,
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
+            &mut bob_store.frodokexp_pre_key_store,
         )
         .await?;
 
@@ -579,6 +583,7 @@ fn test_sealed_sender_multi_recipient() -> Result<(), SignalProtocolError> {
             &mut bob_store.pre_key_store,
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
+            &mut bob_store.frodokexp_pre_key_store,
         )
         .await;
 
@@ -639,6 +644,7 @@ fn test_sealed_sender_multi_recipient() -> Result<(), SignalProtocolError> {
             &mut bob_store.pre_key_store,
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
+            &mut bob_store.frodokexp_pre_key_store,
         )
         .await;
 
@@ -755,6 +761,7 @@ fn test_sealed_sender_multi_recipient_new_derivation() -> Result<(), SignalProto
             &mut bob_store.pre_key_store,
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
+            &mut bob_store.frodokexp_pre_key_store,
         )
         .await?;
 
@@ -1021,6 +1028,7 @@ fn test_decryption_error_in_sealed_sender() -> Result<(), SignalProtocolError> {
             &mut alice_store.pre_key_store,
             &alice_store.signed_pre_key_store,
             &mut alice_store.kyber_pre_key_store,
+            &mut alice_store.frodokexp_pre_key_store,
             &mut rng,
         )
         .await?;

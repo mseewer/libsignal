@@ -152,6 +152,7 @@ impl super::LibSignalProtocolStore for LibSignalProtocolCurrent {
                 &mut self.0.pre_key_store,
                 &mut self.0.signed_pre_key_store,
                 &mut self.0.kyber_pre_key_store,
+                &mut self.0.frodokexp_decaps_pre_key_store,
                 &mut thread_rng(),
             )
             .now_or_never()

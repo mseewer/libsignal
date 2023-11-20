@@ -41,6 +41,16 @@ fn test_basic_prekey() -> TestResult {
         KYBER_AWARE_MESSAGE_VERSION,
     )?;
 
+    run(
+        |builder| {
+            builder.add_pre_key(IdChoice::Next);
+            builder.add_signed_pre_key(IdChoice::Next);
+            builder.add_kyber_pre_key(IdChoice::Next);
+            builder.add_frodokexp_pre_key(IdChoice::Next);
+        },
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
     fn run<F>(bob_add_keys: F, expected_session_version: u32) -> TestResult
     where
         F: Fn(&mut TestStoreBuilder),
@@ -235,8 +245,16 @@ fn test_chain_jump_over_limit() -> TestResult {
         .with_pre_key(31337.into())
         .with_signed_pre_key(22.into())
         .with_kyber_pre_key(8000.into());
-
     run(&mut alice_store_builder, &mut bob_store_builder)?;
+
+    let mut alice_store_builder = TestStoreBuilder::new();
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(31337.into())
+        .with_signed_pre_key(22.into())
+        .with_kyber_pre_key(8000.into())
+        .with_frodokexp_pre_key(444.into());
+    run(&mut alice_store_builder, &mut bob_store_builder)?;
+
     fn run(
         alice_store_builder: &mut TestStoreBuilder,
         bob_store_builder: &mut TestStoreBuilder,
@@ -299,6 +317,14 @@ fn test_chain_jump_over_limit_with_self() -> TestResult {
         .with_pre_key(31337.into())
         .with_signed_pre_key(22.into())
         .with_kyber_pre_key(8000.into());
+    run(&mut store_builder_one, &mut store_builder_two)?;
+
+    let mut store_builder_one = TestStoreBuilder::new();
+    let mut store_builder_two = TestStoreBuilder::from_store(&store_builder_one.store)
+        .with_pre_key(31337.into())
+        .with_signed_pre_key(22.into())
+        .with_kyber_pre_key(8000.into())
+        .with_frodokexp_pre_key(444.into());
     run(&mut store_builder_one, &mut store_builder_two)?;
 
     fn run(
@@ -435,6 +461,18 @@ fn test_repeat_bundle_message() -> TestResult {
         KYBER_AWARE_MESSAGE_VERSION,
     )?;
 
+    let mut alice_store_builder = TestStoreBuilder::new();
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(3133.into())
+        .with_signed_pre_key(22.into())
+        .with_kyber_pre_key(8000.into())
+        .with_frodokexp_pre_key(444.into());
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
     fn run(
         alice_store_builder: &mut TestStoreBuilder,
         bob_store_builder: &mut TestStoreBuilder,
@@ -568,6 +606,18 @@ fn test_bad_message_bundle() -> TestResult {
         KYBER_AWARE_MESSAGE_VERSION,
     )?;
 
+    let mut alice_store_builder = TestStoreBuilder::new();
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(3133.into())
+        .with_signed_pre_key(22.into())
+        .with_kyber_pre_key(8000.into())
+        .with_frodokexp_pre_key(444.into());
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
     fn run(
         alice_store_builder: &mut TestStoreBuilder,
         bob_store_builder: &mut TestStoreBuilder,
@@ -669,6 +719,17 @@ fn test_optional_one_time_prekey() -> TestResult {
         KYBER_AWARE_MESSAGE_VERSION,
     )?;
 
+    let mut alice_store_builder = TestStoreBuilder::new();
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_signed_pre_key(22.into())
+        .with_kyber_pre_key(8000.into())
+        .with_frodokexp_pre_key(444.into());
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
     fn run(
         alice_store_builder: &mut TestStoreBuilder,
         bob_store_builder: &mut TestStoreBuilder,
@@ -739,6 +800,9 @@ fn test_basic_session() -> TestResult {
 
     let (alice_session, bob_session) = initialize_sessions_v4()?;
     run_session_interaction(alice_session, bob_session)?;
+
+    let (alice_session, bob_session) = initialize_sessions_v5()?;
+    run_session_interaction(alice_session, bob_session)?;
     Ok(())
 }
 
@@ -746,6 +810,7 @@ fn test_basic_session() -> TestResult {
 fn test_message_key_limits() -> TestResult {
     run(initialize_sessions_v3()?)?;
     run(initialize_sessions_v4()?)?;
+    run(initialize_sessions_v5()?)?;
 
     fn run(sessions: (SessionRecord, SessionRecord)) -> TestResult {
         async {
@@ -837,6 +902,22 @@ fn test_basic_simultaneous_initiate() -> TestResult {
         KYBER_AWARE_MESSAGE_VERSION,
     )?;
 
+    let mut alice_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
     fn run(
         alice_store_builder: &mut TestStoreBuilder,
         bob_store_builder: &mut TestStoreBuilder,
@@ -889,7 +970,7 @@ fn test_basic_simultaneous_initiate() -> TestResult {
             assert!(
                 !is_session_id_equal(alice_store, &alice_address, bob_store, &bob_address).await?
             );
-
+            // fails here BadSKEMKeyLength
             let alice_plaintext = decrypt(
                 alice_store,
                 &bob_address,
@@ -1009,6 +1090,38 @@ fn test_simultaneous_initiate_with_lossage() -> TestResult {
         &mut alice_store_builder,
         &mut bob_store_builder,
         KYBER_AWARE_MESSAGE_VERSION,
+    )?;
+
+    let mut alice_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
+    let mut alice_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -1163,6 +1276,38 @@ fn test_simultaneous_initiate_lost_message() -> TestResult {
         &mut alice_store_builder,
         &mut bob_store_builder,
         KYBER_AWARE_MESSAGE_VERSION,
+    )?;
+
+    let mut alice_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
+    let mut alice_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -1324,6 +1469,23 @@ fn test_simultaneous_initiate_repeated_messages() -> TestResult {
         &mut alice_store_builder,
         &mut bob_store_builder,
         KYBER_AWARE_MESSAGE_VERSION,
+    )?;
+
+    let mut alice_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+
+    let mut bob_store_builder = TestStoreBuilder::new()
+        .with_pre_key(IdChoice::Random)
+        .with_signed_pre_key(IdChoice::Random)
+        .with_kyber_pre_key(IdChoice::Random)
+        .with_frodokexp_pre_key(IdChoice::Random);
+    run(
+        &mut alice_store_builder,
+        &mut bob_store_builder,
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -1581,6 +1743,16 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
         KYBER_AWARE_MESSAGE_VERSION,
     )?;
 
+    run(
+        |builder| {
+            builder.add_pre_key(IdChoice::Next);
+            builder.add_signed_pre_key(IdChoice::Next);
+            builder.add_kyber_pre_key(IdChoice::Next);
+            builder.add_frodokexp_pre_key(IdChoice::Next);
+        },
+        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+    )?;
+
     fn run<F>(add_keys: F, expected_session_version: u32) -> TestResult
     where
         F: Fn(&mut TestStoreBuilder),
@@ -1667,6 +1839,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     .await?
                 );
 
+                // this works sometimes?
                 let alice_plaintext = decrypt(
                     &mut alice_store_builder.store,
                     &bob_address,
@@ -1680,6 +1853,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     "hi alice"
                 );
 
+                // decaps error sometimes
                 let bob_plaintext = decrypt(
                     &mut bob_store_builder.store,
                     &alice_address,
@@ -1905,7 +2079,8 @@ fn test_zero_is_a_valid_prekey_id() -> TestResult {
         let mut bob_store_builder = TestStoreBuilder::new()
             .with_pre_key(0.into())
             .with_signed_pre_key(0.into())
-            .with_kyber_pre_key(0.into());
+            .with_kyber_pre_key(0.into())
+            .with_frodokexp_pre_key(0.into());
 
         let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
@@ -1925,7 +2100,7 @@ fn test_zero_is_a_valid_prekey_id() -> TestResult {
                 .await?
                 .expect("session found")
                 .session_version()?,
-            KYBER_AWARE_MESSAGE_VERSION
+            KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION
         );
 
         let original_message = "L'homme est condamné à être libre";
@@ -1971,7 +2146,8 @@ fn test_unacknowledged_sessions_eventually_expire() -> TestResult {
         let bob_store_builder = TestStoreBuilder::new()
             .with_pre_key(0.into())
             .with_signed_pre_key(0.into())
-            .with_kyber_pre_key(0.into());
+            .with_kyber_pre_key(0.into())
+            .with_frodokexp_pre_key(0.into());
 
         let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 

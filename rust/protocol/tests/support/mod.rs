@@ -18,6 +18,7 @@ use std::time::SystemTime;
 // Deliberately not reusing the constants from `protocol`.
 pub(crate) const PRE_KYBER_MESSAGE_VERSION: u32 = 3;
 pub(crate) const KYBER_AWARE_MESSAGE_VERSION: u32 = 4;
+pub(crate) const KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION: u32 = 5;
 
 pub fn test_in_memory_protocol_store() -> Result<InMemSignalProtocolStore, SignalProtocolError> {
     let mut csprng = OsRng;
@@ -57,6 +58,7 @@ pub async fn decrypt(
         &mut store.pre_key_store,
         &store.signed_pre_key_store,
         &mut store.kyber_pre_key_store,
+        &mut store.frodokexp_pre_key_store,
         &mut csprng,
     )
     .await
@@ -140,8 +142,12 @@ pub fn initialize_sessions_v3() -> Result<(SessionRecord, SessionRecord), Signal
         None,
         bob_ephemeral_key,
         None,
+        None,
         *alice_identity.identity_key(),
         alice_base_key.public_key,
+        None,
+        None,
+        None,
         None,
     );
 
@@ -186,9 +192,97 @@ pub fn initialize_sessions_v4() -> Result<(SessionRecord, SessionRecord), Signal
         None,
         bob_ephemeral_key,
         Some(bob_kyber_key),
+        None,
         *alice_identity.identity_key(),
         alice_base_key.public_key,
         Some(&kyber_ciphertext),
+        None,
+        None,
+        None,
+    );
+
+    let bob_session = initialize_bob_session_record(&bob_params)?;
+
+    Ok((alice_session, bob_session))
+}
+
+pub fn initialize_sessions_v5() -> Result<(SessionRecord, SessionRecord), SignalProtocolError> {
+    let mut csprng = OsRng;
+    let frodokexp_public_parameters =
+        skem::PublicParameters::generate(skem::KeyType::Frodokexp, false);
+    let alice_identity = IdentityKeyPair::generate(&mut csprng);
+    let bob_identity = IdentityKeyPair::generate(&mut csprng);
+
+    let alice_base_key = KeyPair::generate(&mut csprng);
+    let alice_frodokexp_key_pair = skem::Encapsulator::generate_key_pair(
+        skem::KeyType::Frodokexp,
+        &frodokexp_public_parameters,
+    );
+
+    let bob_base_key = KeyPair::generate(&mut csprng);
+    let bob_ephemeral_key = bob_base_key;
+
+    let bob_kyber_key = kem::KeyPair::generate(kem::KeyType::Kyber1024);
+    let bob_frodokexp_key_pair = skem::Decapsulator::generate_key_pair(
+        skem::KeyType::Frodokexp,
+        &frodokexp_public_parameters,
+    );
+
+    let alice_params = AliceSignalProtocolParameters::new(
+        alice_identity,
+        alice_base_key,
+        *bob_identity.identity_key(),
+        bob_base_key.public_key,
+        bob_ephemeral_key.public_key,
+    )
+    .with_their_kyber_pre_key(&bob_kyber_key.public_key)
+    .with_their_frodokexp_pre_key(&bob_frodokexp_key_pair.public_key_mat)
+    .with_our_frodokexp_key_pair(&alice_frodokexp_key_pair);
+
+    let alice_session = initialize_alice_session_record(&alice_params, &mut csprng)?;
+    let kyber_ciphertext = {
+        let bytes = alice_session
+            .get_kyber_ciphertext()?
+            .expect("has kyber ciphertext")
+            .clone();
+        bytes.into_boxed_slice()
+    };
+    let frodokexp_ciphertext = {
+        let bytes = alice_session
+            .get_frodokexp_ciphertext()?
+            .expect("has frodokexp ciphertext")
+            .clone();
+        bytes.into_boxed_slice()
+    };
+    let frodokexp_tag = {
+        let bytes = alice_session
+            .get_frodokexp_tag()?
+            .expect("has frodokexp tag")
+            .clone();
+        bytes.into_boxed_slice()
+    };
+    let frodokexp_public_key = {
+        let bytes = alice_session
+            .get_frodokexp_public_key()?
+            .expect("has public key")
+            .clone();
+        skem::PublicKeyMaterial::deserialize(&bytes)
+            .expect("deserialize should work for their encaps public key")
+    };
+
+    let bob_params = BobSignalProtocolParameters::new(
+        bob_identity,
+        bob_base_key,
+        None,
+        bob_ephemeral_key,
+        Some(bob_kyber_key),
+        Some(bob_frodokexp_key_pair),
+        *alice_identity.identity_key(),
+        alice_base_key.public_key,
+        Some(&kyber_ciphertext),
+        Some(&frodokexp_ciphertext),
+        Some(&frodokexp_tag),
+        Some(&frodokexp_public_key),
     );
 
     let bob_session = initialize_bob_session_record(&bob_params)?;
@@ -315,6 +409,42 @@ impl TestStoreBuilder {
             .expect("able toe store kyber pre key");
     }
 
+    pub fn with_frodokexp_pre_key(
+        mut self,
+        id_choice: IdChoice,
+        // public_parameters: &skem::PublicParameters,
+    ) -> Self {
+        self.add_frodokexp_pre_key(id_choice);
+        self
+    }
+
+    pub fn add_frodokexp_pre_key(
+        &mut self,
+        id_choice: IdChoice,
+        // public_parameters: &skem::PublicParameters,
+    ) {
+        let id = self.gen_id(id_choice);
+        if let Some(latest_id) = self.store.all_frodokexp_pre_key_ids().last() {
+            assert!(
+                id > (*latest_id).into(),
+                "Signed pre key ids should be increasing"
+            );
+        }
+
+        let public_parameters = skem::PublicParameters::generate(skem::KeyType::Frodokexp, false); // false produces just the seed
+        let seed = public_parameters.get_seed();
+        let pair =
+            skem::Decapsulator::generate_key_pair(skem::KeyType::Frodokexp, &public_parameters);
+        let public = pair.public_key_mat.serialize();
+        let signature = self.sign(&public);
+        let record = FrodokexpPreKeyRecord::new(id.into(), 45, &pair, &signature, seed);
+        self.store
+            .save_frodokexp_pre_key(id.into(), &record)
+            .now_or_never()
+            .expect("sync")
+            .expect("able to store frodokexp pre key");
+    }
+
     pub fn make_bundle_with_latest_keys(&self, device_id: DeviceId) -> PreKeyBundle {
         let registration_id = self
             .store
@@ -356,6 +486,15 @@ impl TestStoreBuilder {
                 .expect("sync")
                 .expect("has kyber pre key")
         });
+        let maybe_frodokexp_pre_key_record =
+            self.store.all_frodokexp_pre_key_ids().max().map(|id| {
+                self.store
+                    .get_frodokexp_pre_key(*id)
+                    .now_or_never()
+                    .expect("sync")
+                    .expect("has frodokexp decaps pre key")
+            });
+
         let mut bundle = PreKeyBundle::new(
             registration_id,
             device_id,
@@ -378,6 +517,15 @@ impl TestStoreBuilder {
                 rec.signature().expect("has signature"),
             );
         }
+        if let Some(rec) = maybe_frodokexp_pre_key_record {
+            bundle = bundle.with_frodokexp_pre_key(
+                rec.id().expect("has id"),
+                rec.public_key().expect("has public key"),
+                rec.signature().expect("has signature"),
+                rec.seed().expect("has seed"),
+            );
+        }
+
         bundle
     }
 
