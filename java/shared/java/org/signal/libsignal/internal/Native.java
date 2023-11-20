@@ -13,6 +13,7 @@ import org.signal.libsignal.protocol.state.SessionStore;
 import org.signal.libsignal.protocol.state.PreKeyStore;
 import org.signal.libsignal.protocol.state.SignedPreKeyStore;
 import org.signal.libsignal.protocol.state.KyberPreKeyStore;
+import org.signal.libsignal.protocol.state.FrodokexpPreKeyStore;
 import org.signal.libsignal.protocol.groups.state.SenderKeyStore;
 import org.signal.libsignal.protocol.logging.Log;
 import org.signal.libsignal.protocol.logging.SignalProtocolLogger;
@@ -219,6 +220,37 @@ public final class Native {
   public static native void ExpiringProfileKeyCredential_CheckValidContents(byte[] buffer);
   public static native long ExpiringProfileKeyCredential_GetExpirationTime(byte[] credential);
 
+  public static native void FrodokexpDecapsulatorKeyPair_Destroy(long handle);
+  public static native long FrodokexpDecapsulatorKeyPair_Generate(long pp);
+  public static native long FrodokexpDecapsulatorKeyPair_GetPublicKey(long keyPair);
+  public static native long FrodokexpDecapsulatorKeyPair_GetSecretKey(long keyPair);
+
+  public static native void FrodokexpEncapsulatorKeyPair_Destroy(long handle);
+  public static native long FrodokexpEncapsulatorKeyPair_Generate(long pp);
+  public static native long FrodokexpEncapsulatorKeyPair_GetPublicKey(long keyPair);
+  public static native long FrodokexpEncapsulatorKeyPair_GetSecretKey(long keyPair);
+
+  public static native long FrodokexpPreKeyRecord_Deserialize(byte[] data);
+  public static native void FrodokexpPreKeyRecord_Destroy(long handle);
+  public static native int FrodokexpPreKeyRecord_GetId(long obj);
+  public static native long FrodokexpPreKeyRecord_GetKeyPair(long obj);
+  public static native long FrodokexpPreKeyRecord_GetPublicKey(long obj);
+  public static native long FrodokexpPreKeyRecord_GetSecretKey(long obj);
+  public static native byte[] FrodokexpPreKeyRecord_GetSerialized(long obj);
+  public static native byte[] FrodokexpPreKeyRecord_GetSignature(long obj);
+  public static native long FrodokexpPreKeyRecord_GetTimestamp(long obj);
+
+  public static native long FrodokexpPublicKey_DeserializeWithOffset(byte[] data, int offset);
+  public static native void FrodokexpPublicKey_Destroy(long handle);
+  public static native boolean FrodokexpPublicKey_Equals(long lhs, long rhs);
+  public static native byte[] FrodokexpPublicKey_Serialize(long obj);
+
+  public static native void FrodokexpPublicParameters_Destroy(long handle);
+
+  public static native long FrodokexpSecretKey_Deserialize(byte[] data);
+  public static native void FrodokexpSecretKey_Destroy(long handle);
+  public static native byte[] FrodokexpSecretKey_Serialize(long obj);
+
   public static native void GenericServerPublicParams_CheckValidContents(byte[] paramsBytes);
 
   public static native void GenericServerSecretParams_CheckValidContents(byte[] paramsBytes);
@@ -322,6 +354,10 @@ public final class Native {
 
   public static native void PreKeyBundle_Destroy(long handle);
   public static native int PreKeyBundle_GetDeviceId(long obj);
+  public static native int PreKeyBundle_GetFrodokexpPreKeyId(long obj);
+  public static native long PreKeyBundle_GetFrodokexpPreKeyPublic(long bundle);
+  public static native byte[] PreKeyBundle_GetFrodokexpPreKeySeed(long bundle);
+  public static native byte[] PreKeyBundle_GetFrodokexpPreKeySignature(long bundle);
   public static native long PreKeyBundle_GetIdentityKey(long p);
   public static native int PreKeyBundle_GetKyberPreKeyId(long obj);
   public static native long PreKeyBundle_GetKyberPreKeyPublic(long bundle);
@@ -332,7 +368,7 @@ public final class Native {
   public static native int PreKeyBundle_GetSignedPreKeyId(long obj);
   public static native long PreKeyBundle_GetSignedPreKeyPublic(long obj);
   public static native byte[] PreKeyBundle_GetSignedPreKeySignature(long obj);
-  public static native long PreKeyBundle_New(int registrationId, int deviceId, int prekeyId, long prekey, int signedPrekeyId, long signedPrekey, byte[] signedPrekeySignature, long identityKey, int kyberPrekeyId, long kyberPrekey, byte[] kyberPrekeySignature);
+  public static native long PreKeyBundle_New(int registrationId, int deviceId, int prekeyId, long prekey, int signedPrekeyId, long signedPrekey, byte[] signedPrekeySignature, long identityKey, int kyberPrekeyId, long kyberPrekey, byte[] kyberPrekeySignature, int frodokexpPrekeyId, long frodokexpPrekey, byte[] frodokexpPrekeySignature, byte[] frodokexpPrekeySeed);
 
   public static native long PreKeyRecord_Deserialize(byte[] data);
   public static native void PreKeyRecord_Destroy(long handle);
@@ -488,7 +524,7 @@ public final class Native {
 
   public static native void SessionBuilder_ProcessPreKeyBundle(long bundle, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, long now);
 
-  public static native byte[] SessionCipher_DecryptPreKeySignalMessage(long message, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, PreKeyStore prekeyStore, SignedPreKeyStore signedPrekeyStore, KyberPreKeyStore kyberPrekeyStore);
+  public static native byte[] SessionCipher_DecryptPreKeySignalMessage(long message, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, PreKeyStore prekeyStore, SignedPreKeyStore signedPrekeyStore, KyberPreKeyStore kyberPrekeyStore, FrodokexpPreKeyStore frodokexpPrekeyStore);
   public static native byte[] SessionCipher_DecryptSignalMessage(long message, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore);
   public static native CiphertextMessage SessionCipher_EncryptMessage(byte[] ptext, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, long now);
 

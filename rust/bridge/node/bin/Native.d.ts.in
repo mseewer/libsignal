@@ -48,6 +48,12 @@ export abstract class KyberPreKeyStore {
   _markKyberPreKeyUsed(kyberPreKeyId: number): Promise<void>;
 }
 
+export abstract class FrodokexpPreKeyStore {
+  _saveFrodokexpPreKey(frodokexpPreKeyId: number, record: FrodokexpPreKeyRecord): Promise<void>;
+  _getFrodokexpPreKey(frodokexpPreKeyId: number): Promise<FrodokexpPreKeyRecord>;
+  _markFrodokexpPreKeyUsed(frodokexpPreKeyId: number): Promise<void>;
+}
+
 export abstract class SenderKeyStore {
   _saveSenderKey(sender: ProtocolAddress, distributionId: Uuid, record: SenderKeyRecord): Promise<void>;
   _getSenderKey(sender: ProtocolAddress, distributionId: Uuid): Promise<SenderKeyRecord | null>;

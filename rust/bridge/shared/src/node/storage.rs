@@ -344,6 +344,136 @@ impl KyberPreKeyStore for NodeKyberPreKeyStore {
     }
 }
 
+pub struct NodeFrodokexpPreKeyStore {
+    js_channel: Channel,
+    store_object: Arc<Root<JsObject>>,
+}
+
+impl NodeFrodokexpPreKeyStore {
+    pub(crate) fn new(cx: &mut FunctionContext, store: Handle<JsObject>) -> Self {
+        Self {
+            js_channel: cx.channel(),
+            store_object: Arc::new(store.root(cx)),
+        }
+    }
+
+    async fn do_get_frodokexp_pre_key(&self, id: u32) -> Result<FrodokexpPreKeyRecord, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let store_object = store_object_shared.to_inner(cx);
+            let id = id.convert_into(cx)?;
+            let result = call_method(cx, store_object, "_getFrodokexpPreKey", [id.upcast()])?;
+            let result = result.downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<DefaultJsBox<FrodokexpPreKeyRecord>, _>(cx) {
+                Ok(obj) => Ok((***obj).clone()),
+                Err(_) => Err("result must be an object".to_owned()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_save_frodokexp_pre_key(
+        &self,
+        id: u32,
+        record: FrodokexpPreKeyRecord,
+    ) -> Result<(), String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let store_object = store_object_shared.to_inner(cx);
+            let id: Handle<JsNumber> = id.convert_into(cx)?;
+            let record: Handle<JsValue> = record.convert_into(cx)?;
+            let result = call_method(
+                cx,
+                store_object,
+                "_saveFrodokexpPreKey",
+                [id.upcast(), record],
+            )?
+            .downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<JsUndefined, _>(cx) {
+                Ok(_) => Ok(()),
+                Err(_) => Err("unexpected result from _saveFrodokexpPreKey".into()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_mark_frodokexp_pre_key_used(&self, id: u32) -> Result<(), String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let store_object = store_object_shared.to_inner(cx);
+            let id: Handle<JsNumber> = id.convert_into(cx)?;
+            let result = call_method(cx, store_object, "_markFrodokexpPreKeyUsed", [id.upcast()])?
+                .downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<JsUndefined, _>(cx) {
+                Ok(_) => Ok(()),
+                Err(_) => Err("unexpected result from _markFrodokexpPreKeyUsed".into()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+}
+
+impl Finalize for NodeFrodokexpPreKeyStore {
+    fn finalize<'b, C: neon::prelude::Context<'b>>(self, cx: &mut C) {
+        self.store_object.finalize(cx)
+    }
+}
+
+#[async_trait(?Send)]
+impl FrodokexpPreKeyStore for NodeFrodokexpPreKeyStore {
+    async fn get_frodokexp_pre_key(
+        &self,
+        frodokexp_pre_key_id: FrodokexpPreKeyId,
+    ) -> Result<FrodokexpPreKeyRecord, SignalProtocolError> {
+        self.do_get_frodokexp_pre_key(frodokexp_pre_key_id.into())
+            .await
+            .map_err(|s| js_error_to_rust("getFrodokexpPreKey", s))
+    }
+
+    async fn save_frodokexp_pre_key(
+        &mut self,
+        frodokexp_pre_key_id: FrodokexpPreKeyId,
+        record: &FrodokexpPreKeyRecord,
+    ) -> Result<(), SignalProtocolError> {
+        self.do_save_frodokexp_pre_key(frodokexp_pre_key_id.into(), record.clone())
+            .await
+            .map_err(|s| js_error_to_rust("saveFrodokexpPreKey", s))
+    }
+
+    async fn mark_frodokexp_pre_key_used(
+        &mut self,
+        frodokexp_pre_key_id: FrodokexpPreKeyId,
+    ) -> Result<(), SignalProtocolError> {
+        self.do_mark_frodokexp_pre_key_used(frodokexp_pre_key_id.into())
+            .await
+            .map_err(|s| js_error_to_rust("markFrodokexpPreKeyUsed", s))
+    }
+}
+
 pub struct NodeSessionStore {
     js_channel: Channel,
     store_object: Arc<Root<JsObject>>,

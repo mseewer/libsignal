@@ -48,6 +48,12 @@ export abstract class KyberPreKeyStore {
   _markKyberPreKeyUsed(kyberPreKeyId: number): Promise<void>;
 }
 
+export abstract class FrodokexpPreKeyStore {
+  _saveFrodokexpPreKey(frodokexpPreKeyId: number, record: FrodokexpPreKeyRecord): Promise<void>;
+  _getFrodokexpPreKey(frodokexpPreKeyId: number): Promise<FrodokexpPreKeyRecord>;
+  _markFrodokexpPreKeyUsed(frodokexpPreKeyId: number): Promise<void>;
+}
+
 export abstract class SenderKeyStore {
   _saveSenderKey(sender: ProtocolAddress, distributionId: Uuid, record: SenderKeyRecord): Promise<void>;
   _getSenderKey(sender: ProtocolAddress, distributionId: Uuid): Promise<SenderKeyRecord | null>;
@@ -137,6 +143,25 @@ export function ExpiringProfileKeyCredential_GetExpirationTime(credential: Seria
 export function Fingerprint_DisplayString(obj: Wrapper<Fingerprint>): string;
 export function Fingerprint_New(iterations: number, version: number, localIdentifier: Buffer, localKey: Wrapper<PublicKey>, remoteIdentifier: Buffer, remoteKey: Wrapper<PublicKey>): Fingerprint;
 export function Fingerprint_ScannableEncoding(obj: Wrapper<Fingerprint>): Buffer;
+export function FrodokexpDecapsulatorKeyPair_Generate(pp: Wrapper<FrodokexpPublicParameters>): FrodokexpDecapsulatorKeyPair;
+export function FrodokexpDecapsulatorKeyPair_GetPublicKey(keyPair: Wrapper<FrodokexpDecapsulatorKeyPair>): FrodokexpPublicKey;
+export function FrodokexpDecapsulatorKeyPair_GetSecretKey(keyPair: Wrapper<FrodokexpDecapsulatorKeyPair>): FrodokexpSecretKey;
+export function FrodokexpEncapsulatorKeyPair_Generate(pp: Wrapper<FrodokexpPublicParameters>): FrodokexpEncapsulatorKeyPair;
+export function FrodokexpEncapsulatorKeyPair_GetPublicKey(keyPair: Wrapper<FrodokexpEncapsulatorKeyPair>): FrodokexpPublicKey;
+export function FrodokexpEncapsulatorKeyPair_GetSecretKey(keyPair: Wrapper<FrodokexpEncapsulatorKeyPair>): FrodokexpSecretKey;
+export function FrodokexpPreKeyRecord_Deserialize(data: Buffer): FrodokexpPreKeyRecord;
+export function FrodokexpPreKeyRecord_GetId(obj: Wrapper<FrodokexpPreKeyRecord>): number;
+export function FrodokexpPreKeyRecord_GetKeyPair(obj: Wrapper<FrodokexpPreKeyRecord>): FrodokexpDecapsulatorKeyPair;
+export function FrodokexpPreKeyRecord_GetPublicKey(obj: Wrapper<FrodokexpPreKeyRecord>): FrodokexpPublicKey;
+export function FrodokexpPreKeyRecord_GetSecretKey(obj: Wrapper<FrodokexpPreKeyRecord>): FrodokexpSecretKey;
+export function FrodokexpPreKeyRecord_GetSignature(obj: Wrapper<FrodokexpPreKeyRecord>): Buffer;
+export function FrodokexpPreKeyRecord_GetTimestamp(obj: Wrapper<FrodokexpPreKeyRecord>): Timestamp;
+export function FrodokexpPreKeyRecord_Serialize(obj: Wrapper<FrodokexpPreKeyRecord>): Buffer;
+export function FrodokexpPublicKey_Deserialize(data: Buffer): FrodokexpPublicKey;
+export function FrodokexpPublicKey_Equals(lhs: Wrapper<FrodokexpPublicKey>, rhs: Wrapper<FrodokexpPublicKey>): boolean;
+export function FrodokexpPublicKey_Serialize(obj: Wrapper<FrodokexpPublicKey>): Buffer;
+export function FrodokexpSecretKey_Deserialize(data: Buffer): FrodokexpSecretKey;
+export function FrodokexpSecretKey_Serialize(obj: Wrapper<FrodokexpSecretKey>): Buffer;
 export function GenericServerPublicParams_CheckValidContents(paramsBytes: Buffer): void;
 export function GenericServerSecretParams_CheckValidContents(paramsBytes: Buffer): void;
 export function GenericServerSecretParams_GenerateDeterministic(randomness: Buffer): Buffer;
@@ -198,6 +223,10 @@ export function PlaintextContent_FromDecryptionErrorMessage(m: Wrapper<Decryptio
 export function PlaintextContent_GetBody(obj: Wrapper<PlaintextContent>): Buffer;
 export function PlaintextContent_Serialize(obj: Wrapper<PlaintextContent>): Buffer;
 export function PreKeyBundle_GetDeviceId(obj: Wrapper<PreKeyBundle>): number;
+export function PreKeyBundle_GetFrodokexpPreKeyId(obj: Wrapper<PreKeyBundle>): number | null;
+export function PreKeyBundle_GetFrodokexpPreKeyPublic(bundle: Wrapper<PreKeyBundle>): FrodokexpPublicKey | null;
+export function PreKeyBundle_GetFrodokexpPreKeySeed(bundle: Wrapper<PreKeyBundle>): Buffer;
+export function PreKeyBundle_GetFrodokexpPreKeySignature(bundle: Wrapper<PreKeyBundle>): Buffer;
 export function PreKeyBundle_GetIdentityKey(p: Wrapper<PreKeyBundle>): PublicKey;
 export function PreKeyBundle_GetKyberPreKeyId(obj: Wrapper<PreKeyBundle>): number | null;
 export function PreKeyBundle_GetKyberPreKeyPublic(bundle: Wrapper<PreKeyBundle>): KyberPublicKey | null;
@@ -208,7 +237,7 @@ export function PreKeyBundle_GetRegistrationId(obj: Wrapper<PreKeyBundle>): numb
 export function PreKeyBundle_GetSignedPreKeyId(obj: Wrapper<PreKeyBundle>): number;
 export function PreKeyBundle_GetSignedPreKeyPublic(obj: Wrapper<PreKeyBundle>): PublicKey;
 export function PreKeyBundle_GetSignedPreKeySignature(obj: Wrapper<PreKeyBundle>): Buffer;
-export function PreKeyBundle_New(registrationId: number, deviceId: number, prekeyId: number | null, prekey: Wrapper<PublicKey> | null, signedPrekeyId: number, signedPrekey: Wrapper<PublicKey>, signedPrekeySignature: Buffer, identityKey: Wrapper<PublicKey>, kyberPrekeyId: number | null, kyberPrekey: Wrapper<KyberPublicKey> | null, kyberPrekeySignature: Buffer): PreKeyBundle;
+export function PreKeyBundle_New(registrationId: number, deviceId: number, prekeyId: number | null, prekey: Wrapper<PublicKey> | null, signedPrekeyId: number, signedPrekey: Wrapper<PublicKey>, signedPrekeySignature: Buffer, identityKey: Wrapper<PublicKey>, kyberPrekeyId: number | null, kyberPrekey: Wrapper<KyberPublicKey> | null, kyberPrekeySignature: Buffer, frodokexpPrekeyId: number | null, frodokexpPrekey: Wrapper<FrodokexpPublicKey> | null, frodokexpPrekeySignature: Buffer, frodokexpPrekeySeed: Buffer): PreKeyBundle;
 export function PreKeyRecord_Deserialize(data: Buffer): PreKeyRecord;
 export function PreKeyRecord_GetId(obj: Wrapper<PreKeyRecord>): number;
 export function PreKeyRecord_GetPrivateKey(obj: Wrapper<PreKeyRecord>): PrivateKey;
@@ -268,7 +297,7 @@ export function SealedSenderDecryptionResult_GetDeviceId(obj: Wrapper<SealedSend
 export function SealedSenderDecryptionResult_GetSenderE164(obj: Wrapper<SealedSenderDecryptionResult>): string | null;
 export function SealedSenderDecryptionResult_GetSenderUuid(obj: Wrapper<SealedSenderDecryptionResult>): string;
 export function SealedSenderDecryptionResult_Message(obj: Wrapper<SealedSenderDecryptionResult>): Buffer;
-export function SealedSender_DecryptMessage(message: Buffer, trustRoot: Wrapper<PublicKey>, timestamp: Timestamp, localE164: string | null, localUuid: string, localDeviceId: number, sessionStore: SessionStore, identityStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore): Promise<SealedSenderDecryptionResult>;
+export function SealedSender_DecryptMessage(message: Buffer, trustRoot: Wrapper<PublicKey>, timestamp: Timestamp, localE164: string | null, localUuid: string, localDeviceId: number, sessionStore: SessionStore, identityStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore, frodokexpPrekeyStore: FrodokexpPreKeyStore): Promise<SealedSenderDecryptionResult>;
 export function SealedSender_DecryptToUsmc(ctext: Buffer, identityStore: IdentityKeyStore): Promise<UnidentifiedSenderMessageContent>;
 export function SealedSender_Encrypt(destination: Wrapper<ProtocolAddress>, content: Wrapper<UnidentifiedSenderMessageContent>, identityKeyStore: IdentityKeyStore): Promise<Buffer>;
 export function SealedSender_MultiRecipientEncrypt(recipients: Wrapper<ProtocolAddress>[], recipientSessions: Wrapper<SessionRecord>[], content: Wrapper<UnidentifiedSenderMessageContent>, identityKeyStore: IdentityKeyStore): Promise<Buffer>;
@@ -342,7 +371,7 @@ export function ServiceId_ServiceIdBinary(value: Buffer): Buffer;
 export function ServiceId_ServiceIdLog(value: Buffer): string;
 export function ServiceId_ServiceIdString(value: Buffer): string;
 export function SessionBuilder_ProcessPreKeyBundle(bundle: Wrapper<PreKeyBundle>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, now: Timestamp): Promise<void>;
-export function SessionCipher_DecryptPreKeySignalMessage(message: Wrapper<PreKeySignalMessage>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore): Promise<Buffer>;
+export function SessionCipher_DecryptPreKeySignalMessage(message: Wrapper<PreKeySignalMessage>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore, frodokexpPrekeyStore: FrodokexpPreKeyStore): Promise<Buffer>;
 export function SessionCipher_DecryptSignalMessage(message: Wrapper<SignalMessage>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore): Promise<Buffer>;
 export function SessionCipher_EncryptMessage(ptext: Buffer, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, now: Timestamp): Promise<CiphertextMessage>;
 export function SessionRecord_ArchiveCurrentState(sessionRecord: Wrapper<SessionRecord>): void;
@@ -426,6 +455,12 @@ interface DecryptionErrorMessage { readonly __type: unique symbol; }
 interface ExpiringProfileKeyCredential { readonly __type: unique symbol; }
 interface ExpiringProfileKeyCredentialResponse { readonly __type: unique symbol; }
 interface Fingerprint { readonly __type: unique symbol; }
+interface FrodokexpDecapsulatorKeyPair { readonly __type: unique symbol; }
+interface FrodokexpEncapsulatorKeyPair { readonly __type: unique symbol; }
+interface FrodokexpPreKeyRecord { readonly __type: unique symbol; }
+interface FrodokexpPublicKey { readonly __type: unique symbol; }
+interface FrodokexpPublicParameters { readonly __type: unique symbol; }
+interface FrodokexpSecretKey { readonly __type: unique symbol; }
 interface GroupMasterKey { readonly __type: unique symbol; }
 interface GroupPublicParams { readonly __type: unique symbol; }
 interface GroupSecretParams { readonly __type: unique symbol; }

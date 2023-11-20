@@ -13,6 +13,7 @@ pub type JavaIdentityKeyStore<'a> = JObject<'a>;
 pub type JavaPreKeyStore<'a> = JObject<'a>;
 pub type JavaSignedPreKeyStore<'a> = JObject<'a>;
 pub type JavaKyberPreKeyStore<'a> = JObject<'a>;
+pub type JavaFrodokexpPreKeyStore<'a> = JObject<'a>;
 pub type JavaSessionStore<'a> = JObject<'a>;
 pub type JavaSenderKeyStore<'a> = JObject<'a>;
 
@@ -463,6 +464,112 @@ impl<'a> KyberPreKeyStore for JniKyberPreKeyStore<'a> {
         prekey_id: KyberPreKeyId,
     ) -> Result<(), SignalProtocolError> {
         Ok(self.do_mark_kyber_pre_key_used(prekey_id.into())?)
+    }
+}
+
+pub struct JniFrodokexpPreKeyStore<'a> {
+    env: RefCell<EnvHandle<'a>>,
+    store: &'a JObject<'a>,
+}
+
+impl<'a> JniFrodokexpPreKeyStore<'a> {
+    pub fn new<'context: 'a>(
+        env: &mut JNIEnv<'context>,
+        store: &'a JObject<'a>,
+    ) -> Result<Self, SignalJniError> {
+        check_jobject_type(
+            env,
+            store,
+            jni_class_name!(org.signal.libsignal.protocol.state.FrodokexpPreKeyStore),
+        )?;
+        Ok(Self {
+            env: EnvHandle::new(env).into(),
+            store,
+        })
+    }
+}
+
+impl<'a> JniFrodokexpPreKeyStore<'a> {
+    fn do_get_frodokexp_pre_key(
+        &self,
+        prekey_id: u32,
+    ) -> Result<FrodokexpPreKeyRecord, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let callback_args = jni_args!((
+            prekey_id.convert_into(env)? => int
+        ) -> org.signal.libsignal.protocol.state.FrodokexpPreKeyRecord);
+            let kpk: Option<FrodokexpPreKeyRecord> = get_object_with_native_handle(
+                env,
+                self.store,
+                callback_args,
+                "loadFrodokexpPreKey",
+            )?;
+            match kpk {
+                Some(kpk) => Ok(kpk),
+                None => Err(SignalJniError::Signal(
+                    SignalProtocolError::InvalidFrodokexpPreKeyId,
+                )),
+            }
+        })
+    }
+
+    fn do_save_frodokexp_pre_key(
+        &mut self,
+        prekey_id: u32,
+        record: &FrodokexpPreKeyRecord,
+    ) -> Result<(), SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let record_handle = record.clone().convert_into(env)?;
+            let jobject_record = jobject_from_native_handle(
+                env,
+                jni_class_name!(org.signal.libsignal.protocol.state.FrodokexpPreKeyRecord),
+                record_handle,
+            )?;
+            let callback_args = jni_args!((
+            prekey_id.convert_into(env)? => int,
+            jobject_record => org.signal.libsignal.protocol.state.FrodokexpPreKeyRecord
+        ) -> void);
+            call_method_checked(env, self.store, "storeFrodokexpPreKey", callback_args)?;
+            Ok(())
+        })
+    }
+
+    fn do_mark_frodokexp_pre_key_used(&mut self, prekey_id: u32) -> Result<(), SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let java_id = prekey_id.convert_into(env)?;
+            call_method_checked(
+                env,
+                self.store,
+                "markFrodokexpPreKeyUsed",
+                jni_args!((java_id => int) -> void),
+            )?;
+            Ok(())
+        })
+    }
+}
+
+#[async_trait(? Send)]
+impl<'a> FrodokexpPreKeyStore for JniFrodokexpPreKeyStore<'a> {
+    async fn get_frodokexp_pre_key(
+        &self,
+        prekey_id: FrodokexpPreKeyId,
+    ) -> Result<FrodokexpPreKeyRecord, SignalProtocolError> {
+        Ok(self.do_get_frodokexp_pre_key(prekey_id.into())?)
+    }
+
+    async fn save_frodokexp_pre_key(
+        &mut self,
+        prekey_id: FrodokexpPreKeyId,
+        record: &FrodokexpPreKeyRecord,
+    ) -> Result<(), SignalProtocolError> {
+        Ok(self.do_save_frodokexp_pre_key(prekey_id.into(), record)?)
+    }
+
+    async fn mark_frodokexp_pre_key_used(
+        &mut self,
+        prekey_id: FrodokexpPreKeyId,
+    ) -> Result<(), SignalProtocolError> {
+        Ok(self.do_mark_frodokexp_pre_key_used(prekey_id.into())?)
     }
 }
 

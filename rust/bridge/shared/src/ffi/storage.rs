@@ -347,6 +347,83 @@ impl KyberPreKeyStore for &FfiKyberPreKeyStoreStruct {
     }
 }
 
+type LoadFrodokexpPreKey = extern "C" fn(
+    store_ctx: *mut c_void,
+    recordp: *mut *mut FrodokexpPreKeyRecord,
+    id: u32,
+) -> c_int;
+type StoreFrodokexpPreKey =
+    extern "C" fn(store_ctx: *mut c_void, id: u32, record: *const FrodokexpPreKeyRecord) -> c_int;
+type MarkFrodokexpPreKeyUsed = extern "C" fn(store_ctx: *mut c_void, id: u32) -> c_int;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct FfiFrodokexpPreKeyStoreStruct {
+    ctx: *mut c_void,
+    load_frodokexp_pre_key: LoadFrodokexpPreKey,
+    store_frodokexp_pre_key: StoreFrodokexpPreKey,
+    mark_frodokexp_pre_key_used: MarkFrodokexpPreKeyUsed,
+}
+
+#[async_trait(?Send)]
+impl FrodokexpPreKeyStore for &FfiFrodokexpPreKeyStoreStruct {
+    async fn get_frodokexp_pre_key(
+        &self,
+        id: FrodokexpPreKeyId,
+    ) -> Result<FrodokexpPreKeyRecord, SignalProtocolError> {
+        let mut record = std::ptr::null_mut();
+        let result = (self.load_frodokexp_pre_key)(self.ctx, &mut record, id.into());
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "load_frodokexp_pre_key",
+                Box::new(error),
+            ));
+        }
+
+        if record.is_null() {
+            return Err(SignalProtocolError::InvalidFrodokexpPreKeyId);
+        }
+
+        let record = unsafe { Box::from_raw(record) };
+
+        Ok(*record)
+    }
+
+    async fn save_frodokexp_pre_key(
+        &mut self,
+        id: FrodokexpPreKeyId,
+        record: &FrodokexpPreKeyRecord,
+    ) -> Result<(), SignalProtocolError> {
+        let result = (self.store_frodokexp_pre_key)(self.ctx, id.into(), record);
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "store_frodokexp_pre_key",
+                Box::new(error),
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn mark_frodokexp_pre_key_used(
+        &mut self,
+        id: FrodokexpPreKeyId,
+    ) -> Result<(), SignalProtocolError> {
+        let result = (self.mark_frodokexp_pre_key_used)(self.ctx, id.into());
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "mark_frodokexp_pre_key_used",
+                Box::new(error),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 type LoadSession = extern "C" fn(
     store_ctx: *mut c_void,
     recordp: *mut *mut SessionRecord,

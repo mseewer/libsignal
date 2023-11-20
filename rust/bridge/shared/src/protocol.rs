@@ -20,10 +20,17 @@ use crate::*;
 
 #[allow(dead_code)]
 const KYBER_KEY_TYPE: kem::KeyType = kem::KeyType::Kyber1024;
+const FRODOKEXP_KEY_TYPE: skem::KeyType = skem::KeyType::Frodokexp;
 
 pub type KyberKeyPair = kem::KeyPair;
 pub type KyberPublicKey = kem::PublicKey;
 pub type KyberSecretKey = kem::SecretKey;
+
+pub type FrodokexpEncapsulatorKeyPair = skem::EncapsulatorKeyPair; // needed?
+pub type FrodokexpDecapsulatorKeyPair = skem::DecapsulatorKeyPair;
+pub type FrodokexpPublicKey = skem::PublicKeyMaterial;
+pub type FrodokexpSecretKey = skem::SecretKeyMaterial;
+pub type FrodokexpPublicParameters = skem::PublicParameters;
 
 bridge_handle!(CiphertextMessage, clone = false, jni = false);
 bridge_handle!(DecryptionErrorMessage);
@@ -44,11 +51,17 @@ bridge_handle!(SessionRecord, mut = true);
 bridge_handle!(SignalMessage, ffi = message);
 bridge_handle!(SignedPreKeyRecord);
 bridge_handle!(KyberPreKeyRecord);
+bridge_handle!(FrodokexpPreKeyRecord);
 bridge_handle!(UnidentifiedSenderMessageContent, clone = false);
 bridge_handle!(SealedSenderDecryptionResult, ffi = false, jni = false);
 bridge_handle!(KyberKeyPair);
 bridge_handle!(KyberPublicKey);
 bridge_handle!(KyberSecretKey);
+bridge_handle!(FrodokexpEncapsulatorKeyPair); // needed?
+bridge_handle!(FrodokexpDecapsulatorKeyPair);
+bridge_handle!(FrodokexpPublicKey);
+bridge_handle!(FrodokexpSecretKey);
+bridge_handle!(FrodokexpPublicParameters);
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Timestamp(u64);
@@ -262,6 +275,82 @@ fn KyberKeyPair_GetSecretKey(key_pair: &KyberKeyPair) -> KyberSecretKey {
     key_pair.secret_key.clone()
 }
 
+bridge_get!(
+    FrodokexpPublicKey::serialize as Serialize -> Vec<u8>,
+    jni = "FrodokexpPublicKey_1Serialize"
+);
+
+#[bridge_fn(jni = false)]
+fn FrodokexpPublicKey_Deserialize(data: &[u8]) -> Result<FrodokexpPublicKey> {
+    FrodokexpPublicKey::deserialize(data)
+}
+
+#[bridge_fn(ffi = false, node = false)]
+fn FrodokexpPublicKey_DeserializeWithOffset(
+    data: &[u8],
+    offset: u32,
+) -> Result<FrodokexpPublicKey> {
+    let offset = offset as usize;
+    FrodokexpPublicKey::deserialize(&data[offset..])
+}
+
+bridge_get!(
+    FrodokexpSecretKey::serialize as Serialize -> Vec<u8>,
+    jni = "FrodokexpSecretKey_1Serialize"
+);
+
+#[bridge_fn(jni = "FrodokexpSecretKey_1Deserialize")]
+fn FrodokexpSecretKey_Deserialize(data: &[u8]) -> Result<FrodokexpSecretKey> {
+    FrodokexpSecretKey::deserialize(data)
+}
+
+#[bridge_fn]
+fn FrodokexpPublicKey_Equals(lhs: &FrodokexpPublicKey, rhs: &FrodokexpPublicKey) -> bool {
+    lhs == rhs
+}
+
+#[bridge_fn]
+fn FrodokexpDecapsulatorKeyPair_Generate(
+    pp: &FrodokexpPublicParameters,
+) -> FrodokexpDecapsulatorKeyPair {
+    skem::Decapsulator::generate_key_pair(FRODOKEXP_KEY_TYPE, pp)
+}
+
+#[bridge_fn]
+fn FrodokexpEncapsulatorKeyPair_Generate(
+    pp: &FrodokexpPublicParameters,
+) -> FrodokexpEncapsulatorKeyPair {
+    skem::Encapsulator::generate_key_pair(FRODOKEXP_KEY_TYPE, pp)
+}
+
+#[bridge_fn]
+fn FrodokexpDecapsulatorKeyPair_GetPublicKey(
+    key_pair: &FrodokexpDecapsulatorKeyPair,
+) -> FrodokexpPublicKey {
+    key_pair.public_key_mat.clone()
+}
+
+#[bridge_fn]
+fn FrodokexpEncapsulatorKeyPair_GetPublicKey(
+    key_pair: &FrodokexpEncapsulatorKeyPair,
+) -> FrodokexpPublicKey {
+    key_pair.public_key_mat.clone()
+}
+
+#[bridge_fn]
+fn FrodokexpDecapsulatorKeyPair_GetSecretKey(
+    key_pair: &FrodokexpDecapsulatorKeyPair,
+) -> FrodokexpSecretKey {
+    key_pair.secret_key_mat.clone()
+}
+
+#[bridge_fn]
+fn FrodokexpEncapsulatorKeyPair_GetSecretKey(
+    key_pair: &FrodokexpEncapsulatorKeyPair,
+) -> FrodokexpSecretKey {
+    key_pair.secret_key_mat.clone()
+}
+
 #[bridge_fn(ffi = "identitykeypair_serialize")]
 fn IdentityKeyPair_Serialize(public_key: &PublicKey, private_key: &PrivateKey) -> Vec<u8> {
     let identity_key_pair = IdentityKeyPair::new(IdentityKey::new(*public_key), *private_key);
@@ -418,6 +507,7 @@ fn PreKeySignalMessage_New(
         pre_key_id.map(|id| id.into()),
         signed_pre_key_id.into(),
         None, // TODO: accept kyber payload
+        None,
         *base_key,
         IdentityKey::new(*identity_key),
         signal_message.clone(),
@@ -597,6 +687,10 @@ fn PreKeyBundle_New(
     kyber_prekey_id: Option<u32>,
     kyber_prekey: Option<&KyberPublicKey>,
     kyber_prekey_signature: &[u8],
+    frodokexp_prekey_id: Option<u32>,
+    frodokexp_prekey: Option<&FrodokexpPublicKey>,
+    frodokexp_prekey_signature: &[u8],
+    frodokexp_prekey_seed: &[u8],
 ) -> Result<PreKeyBundle> {
     let identity_key = IdentityKey::new(*identity_key);
 
@@ -619,13 +713,32 @@ fn PreKeyBundle_New(
         signed_prekey_signature.to_vec(),
         identity_key,
     )?;
-    match (kyber_prekey_id, kyber_prekey, kyber_prekey_signature) {
+    let bundle = match (kyber_prekey_id, kyber_prekey, kyber_prekey_signature) {
         (Some(id), Some(public), signature) if !signature.is_empty() => {
             Ok(bundle.with_kyber_pre_key(id.into(), public.clone(), signature.to_vec()))
         }
         (None, None, &[]) => Ok(bundle),
         _ => Err(SignalProtocolError::InvalidArgument(
             "All or none Kyber pre key arguments must be set".to_owned(),
+        )),
+    }?;
+    match (
+        frodokexp_prekey_id,
+        frodokexp_prekey,
+        frodokexp_prekey_signature,
+        frodokexp_prekey_seed,
+    ) {
+        (Some(id), Some(public), signature, seed) if !signature.is_empty() && !seed.is_empty() => {
+            Ok(bundle.with_frodokexp_pre_key(
+                id.into(),
+                public.clone(),
+                signature.to_vec(),
+                seed.into(),
+            ))
+        }
+        (None, None, &[], &[]) => Ok(bundle),
+        _ => Err(SignalProtocolError::InvalidArgument(
+            "All or none Frodokexp pre key arguments must be set".to_owned(),
         )),
     }
 }
@@ -643,6 +756,7 @@ bridge_get!(PreKeyBundle::pre_key_id -> Option<u32>);
 bridge_get!(PreKeyBundle::pre_key_public -> Option<PublicKey>);
 bridge_get!(PreKeyBundle::signed_pre_key_public -> PublicKey);
 bridge_get!(PreKeyBundle::kyber_pre_key_id -> Option<u32>, ffi = false);
+bridge_get!(PreKeyBundle::frodokexp_pre_key_id -> Option<u32>, ffi = false);
 #[bridge_fn]
 fn PreKeyBundle_GetKyberPreKeyPublic(bundle: &PreKeyBundle) -> Result<Option<KyberPublicKey>> {
     bundle
@@ -655,6 +769,29 @@ fn PreKeyBundle_GetKyberPreKeySignature(bundle: &PreKeyBundle) -> Result<&[u8]> 
     bundle
         .kyber_pre_key_signature()
         .map(|maybe_sig| maybe_sig.unwrap_or(&[]))
+}
+
+#[bridge_fn]
+fn PreKeyBundle_GetFrodokexpPreKeyPublic(
+    bundle: &PreKeyBundle,
+) -> Result<Option<FrodokexpPublicKey>> {
+    bundle
+        .frodokexp_pre_key_public()
+        .map(|maybe_key| maybe_key.cloned())
+}
+
+#[bridge_fn]
+fn PreKeyBundle_GetFrodokexpPreKeySignature(bundle: &PreKeyBundle) -> Result<&[u8]> {
+    bundle
+        .frodokexp_pre_key_signature()
+        .map(|maybe_sig| maybe_sig.unwrap_or(&[]))
+}
+
+#[bridge_fn]
+fn PreKeyBundle_GetFrodokexpPreKeySeed(bundle: &PreKeyBundle) -> Result<&[u8]> {
+    bundle
+        .frodokexp_pre_key_seed()
+        .map(|maybe_seed| maybe_seed.unwrap_or(&[]))
 }
 
 bridge_deserialize!(SignedPreKeyRecord::deserialize);
@@ -679,6 +816,18 @@ bridge_get!(KyberPreKeyRecord::timestamp -> Timestamp);
 bridge_get!(KyberPreKeyRecord::public_key -> KyberPublicKey);
 bridge_get!(KyberPreKeyRecord::secret_key -> KyberSecretKey);
 bridge_get!(KyberPreKeyRecord::key_pair -> KyberKeyPair);
+
+bridge_deserialize!(FrodokexpPreKeyRecord::deserialize);
+bridge_get!(FrodokexpPreKeyRecord::signature -> Vec<u8>);
+bridge_get!(
+    FrodokexpPreKeyRecord::serialize as Serialize -> Vec<u8>,
+    jni = "FrodokexpPreKeyRecord_1GetSerialized"
+);
+bridge_get!(FrodokexpPreKeyRecord::id -> u32);
+bridge_get!(FrodokexpPreKeyRecord::timestamp -> Timestamp);
+bridge_get!(FrodokexpPreKeyRecord::public_key -> FrodokexpPublicKey);
+bridge_get!(FrodokexpPreKeyRecord::secret_key -> FrodokexpSecretKey);
+bridge_get!(FrodokexpPreKeyRecord::key_pair -> FrodokexpDecapsulatorKeyPair);
 
 #[bridge_fn]
 fn SignedPreKeyRecord_New(
@@ -1071,8 +1220,12 @@ fn SessionRecord_InitializeBobSession(
         None,
         our_ratchet_key_pair,
         None,
+        None,
         their_identity_key,
         *their_base_key,
+        None,
+        None,
+        None,
         None,
     );
 
@@ -1146,6 +1299,7 @@ async fn SessionCipher_DecryptPreKeySignalMessage(
     prekey_store: &mut dyn PreKeyStore,
     signed_prekey_store: &mut dyn SignedPreKeyStore,
     kyber_prekey_store: &mut dyn KyberPreKeyStore,
+    frodokexp_prekey_store: &mut dyn FrodokexpPreKeyStore,
 ) -> Result<Vec<u8>> {
     let mut csprng = rand::rngs::OsRng;
     message_decrypt_prekey(
@@ -1156,6 +1310,7 @@ async fn SessionCipher_DecryptPreKeySignalMessage(
         prekey_store,
         signed_prekey_store,
         kyber_prekey_store,
+        frodokexp_prekey_store,
         &mut csprng,
     )
     .await
@@ -1247,6 +1402,7 @@ async fn SealedSender_DecryptMessage(
     prekey_store: &mut dyn PreKeyStore,
     signed_prekey_store: &mut dyn SignedPreKeyStore,
     kyber_prekey_store: &mut dyn KyberPreKeyStore,
+    frodokexp_prekey_store: &mut dyn FrodokexpPreKeyStore,
 ) -> Result<SealedSenderDecryptionResult> {
     sealed_sender_decrypt(
         message,
@@ -1260,6 +1416,7 @@ async fn SealedSender_DecryptMessage(
         prekey_store,
         signed_prekey_store,
         kyber_prekey_store,
+        frodokexp_prekey_store,
     )
     .await
 }

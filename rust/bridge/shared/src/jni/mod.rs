@@ -263,6 +263,7 @@ where
         | SignalJniError::Jni(_)
         | SignalJniError::Signal(SignalProtocolError::ApplicationCallbackError(_, _))
         | SignalJniError::Signal(SignalProtocolError::FfiBindingError(_))
+        | SignalJniError::Signal(SignalProtocolError::SKEMDecapsulationError)
         | SignalJniError::DeviceTransfer(DeviceTransferError::InternalError(_))
         | SignalJniError::DeviceTransfer(DeviceTransferError::KeyDecodingFailed) => {
             jni_class_name!(java.lang.RuntimeException)
@@ -274,7 +275,8 @@ where
 
         SignalJniError::Signal(SignalProtocolError::InvalidPreKeyId)
         | SignalJniError::Signal(SignalProtocolError::InvalidSignedPreKeyId)
-        | SignalJniError::Signal(SignalProtocolError::InvalidKyberPreKeyId) => {
+        | SignalJniError::Signal(SignalProtocolError::InvalidKyberPreKeyId)
+        | SignalJniError::Signal(SignalProtocolError::InvalidFrodokexpPreKeyId) => {
             jni_class_name!(org.signal.libsignal.protocol.InvalidKeyIdException)
         }
 
@@ -286,6 +288,11 @@ where
         | SignalJniError::Signal(SignalProtocolError::BadKEMKeyType(_))
         | SignalJniError::Signal(SignalProtocolError::WrongKEMKeyType(_, _))
         | SignalJniError::Signal(SignalProtocolError::BadKEMKeyLength(_, _))
+        | SignalJniError::Signal(SignalProtocolError::BadSKEMKeyType(_))
+        | SignalJniError::Signal(SignalProtocolError::WrongSKEMKeyType(_, _))
+        | SignalJniError::Signal(SignalProtocolError::BadSKEMKeyLength(_, _))
+        | SignalJniError::Signal(SignalProtocolError::MismatchSKEMSecretKeyMaterial(_, _))
+        | SignalJniError::Signal(SignalProtocolError::BadSKEMKeyPairType(_))
         | SignalJniError::SignalCrypto(SignalCryptoError::InvalidKeySize) => {
             jni_class_name!(org.signal.libsignal.protocol.InvalidKeyException)
         }
@@ -303,6 +310,8 @@ where
         | SignalJniError::Signal(SignalProtocolError::InvalidProtobufEncoding)
         | SignalJniError::Signal(SignalProtocolError::InvalidSealedSenderMessage(_))
         | SignalJniError::Signal(SignalProtocolError::BadKEMCiphertextLength(_, _))
+        | SignalJniError::Signal(SignalProtocolError::BadSKEMCiphertextLength(_, _))
+        | SignalJniError::Signal(SignalProtocolError::BadSKEMTagLength(_, _))
         | SignalJniError::SignalCrypto(SignalCryptoError::InvalidTag) => {
             jni_class_name!(org.signal.libsignal.protocol.InvalidMessageException)
         }
