@@ -4,12 +4,14 @@
 //
 
 mod bundle;
+mod frodokexp_prekey;
 mod kyber_prekey;
 mod prekey;
 mod session;
 mod signed_prekey;
 
 pub use bundle::{PreKeyBundle, PreKeyBundleContent};
+pub use frodokexp_prekey::{FrodokexpPreKeyId, FrodokexpPreKeyRecord};
 pub use kyber_prekey::{KyberPreKeyId, KyberPreKeyRecord};
 pub use prekey::{PreKeyId, PreKeyRecord};
 pub use session::SessionRecord;

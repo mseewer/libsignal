@@ -4,10 +4,11 @@
 //
 
 use crate::{
-    message_encrypt, Aci, CiphertextMessageType, DeviceId, Direction, IdentityKey, IdentityKeyPair,
-    IdentityKeyStore, KeyPair, KyberPreKeyStore, PreKeySignalMessage, PreKeyStore, PrivateKey,
-    ProtocolAddress, PublicKey, Result, ServiceId, ServiceIdFixedWidthBinaryBytes, SessionRecord,
-    SessionStore, SignalMessage, SignalProtocolError, SignedPreKeyStore,
+    message_encrypt, Aci, CiphertextMessageType, DeviceId, Direction, FrodokexpPreKeyStore,
+    IdentityKey, IdentityKeyPair, IdentityKeyStore, KeyPair, KyberPreKeyStore, PreKeySignalMessage,
+    PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, Result, ServiceId,
+    ServiceIdFixedWidthBinaryBytes, SessionRecord, SessionStore, SignalMessage,
+    SignalProtocolError, SignedPreKeyStore,
 };
 
 use crate::{crypto, curve, proto, session_cipher};
@@ -1722,6 +1723,7 @@ pub async fn sealed_sender_decrypt(
     pre_key_store: &mut dyn PreKeyStore,
     signed_pre_key_store: &dyn SignedPreKeyStore,
     kyber_pre_key_store: &mut dyn KyberPreKeyStore,
+    frodokexp_pre_key_store: &mut dyn FrodokexpPreKeyStore,
 ) -> Result<SealedSenderDecryptionResult> {
     let usmc = sealed_sender_decrypt_to_usmc(ciphertext, identity_store).await?;
 
@@ -1771,6 +1773,7 @@ pub async fn sealed_sender_decrypt(
                 pre_key_store,
                 signed_pre_key_store,
                 kyber_pre_key_store,
+                frodokexp_pre_key_store,
                 &mut rng,
             )
             .await?

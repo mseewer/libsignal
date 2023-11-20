@@ -5,7 +5,6 @@
 
 use crate::proto::storage::SignedPreKeyRecordStructure;
 use crate::{kem, KeyPair, PrivateKey, PublicKey, Result, SignalProtocolError};
-
 use prost::Message;
 
 use std::convert::AsRef;
@@ -182,6 +181,31 @@ impl KeySerde for kem::SecretKey {
     }
 }
 
+// impl KeySerde for skem::PublicKeyMaterial {
+//     fn serialize(&self) -> Vec<u8> {
+//         self.serialize().to_vec()
+//     }
+
+//     fn deserialize<T: AsRef<[u8]>>(bytes: T) -> Result<Self>
+//     where
+//         Self: Sized,
+//     {
+//         Self::deserialize(bytes.as_ref())
+//     }
+// }
+
+// impl KeySerde for skem::SecretKeyMaterial {
+//     fn serialize(&self) -> Vec<u8> {
+//         self.serialize().to_vec()
+//     }
+//     fn deserialize<T: AsRef<[u8]>>(bytes: T) -> Result<Self>
+//     where
+//         Self: Sized,
+//     {
+//         Self::deserialize(bytes.as_ref())
+//     }
+// }
+
 impl KeyPairSerde for KeyPair {
     type PublicKey = PublicKey;
     type PrivateKey = PrivateKey;
@@ -215,3 +239,21 @@ impl KeyPairSerde for kem::KeyPair {
         &self.secret_key
     }
 }
+
+// impl KeyPairSerde for skem::DecapsulatorKeyPair {
+//     type PublicKey = skem::PublicKeyMaterial;
+//     type PrivateKey = skem::SecretKeyMaterial;
+
+//     fn from_public_and_private(public_key: &[u8], private_key: &[u8]) -> Result<Self> {
+//         let key_pair = skem::Decapsulator::from_public_and_private(public_key, private_key)?;
+//         Ok(key_pair)
+//     }
+
+//     fn get_public(&self) -> &skem::PublicKeyMaterial {
+//         &self.public_key_mat
+//     }
+
+//     fn get_private(&self) -> &skem::SecretKeyMaterial {
+//         &self.secret_key_mat
+//     }
+// }

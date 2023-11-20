@@ -9,9 +9,9 @@
 
 use crate::storage::traits;
 use crate::{
-    IdentityKey, IdentityKeyPair, KyberPreKeyId, KyberPreKeyRecord, PreKeyId, PreKeyRecord,
-    ProtocolAddress, Result, SenderKeyRecord, SessionRecord, SignalProtocolError, SignedPreKeyId,
-    SignedPreKeyRecord,
+    FrodokexpPreKeyId, FrodokexpPreKeyRecord, IdentityKey, IdentityKeyPair, KyberPreKeyId,
+    KyberPreKeyRecord, PreKeyId, PreKeyRecord, ProtocolAddress, Result, SenderKeyRecord,
+    SessionRecord, SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord,
 };
 
 use async_trait::async_trait;
@@ -245,6 +245,63 @@ impl traits::KyberPreKeyStore for InMemKyberPreKeyStore {
     }
 }
 
+#[derive(Clone)]
+/// Reference implementation of [traits::FrodokexpPreKeyStore].
+pub struct InMemFrodokexpPreKeyStore {
+    frodokexp_pre_keys: HashMap<FrodokexpPreKeyId, FrodokexpPreKeyRecord>,
+}
+
+impl InMemFrodokexpPreKeyStore {
+    /// Create an empty Frodokexp pre-key store.
+    pub fn new() -> Self {
+        Self {
+            frodokexp_pre_keys: HashMap::new(),
+        }
+    }
+
+    /// Returns all registered Frodokexp pre-key ids
+    pub fn all_frodokexp_pre_key_ids(&self) -> impl Iterator<Item = &FrodokexpPreKeyId> {
+        self.frodokexp_pre_keys.keys()
+    }
+}
+
+impl Default for InMemFrodokexpPreKeyStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait(?Send)]
+impl traits::FrodokexpPreKeyStore for InMemFrodokexpPreKeyStore {
+    async fn get_frodokexp_pre_key(
+        &self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+    ) -> Result<FrodokexpPreKeyRecord> {
+        Ok(self
+            .frodokexp_pre_keys
+            .get(&frodokexp_prekey_id)
+            .ok_or(SignalProtocolError::InvalidFrodokexpPreKeyId)?
+            .clone())
+    }
+
+    async fn save_frodokexp_pre_key(
+        &mut self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+        record: &FrodokexpPreKeyRecord,
+    ) -> Result<()> {
+        self.frodokexp_pre_keys
+            .insert(frodokexp_prekey_id, record.to_owned());
+        Ok(())
+    }
+
+    async fn mark_frodokexp_pre_key_used(
+        &mut self,
+        _frodokexp_prekey_id: FrodokexpPreKeyId,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Reference implementation of [traits::SessionStore].
 #[derive(Clone)]
 pub struct InMemSessionStore {
@@ -362,6 +419,7 @@ pub struct InMemSignalProtocolStore {
     pub pre_key_store: InMemPreKeyStore,
     pub signed_pre_key_store: InMemSignedPreKeyStore,
     pub kyber_pre_key_store: InMemKyberPreKeyStore,
+    pub frodokexp_pre_key_store: InMemFrodokexpPreKeyStore,
     pub identity_store: InMemIdentityKeyStore,
     pub sender_key_store: InMemSenderKeyStore,
 }
@@ -375,6 +433,7 @@ impl InMemSignalProtocolStore {
             pre_key_store: InMemPreKeyStore::new(),
             signed_pre_key_store: InMemSignedPreKeyStore::new(),
             kyber_pre_key_store: InMemKyberPreKeyStore::new(),
+            frodokexp_pre_key_store: InMemFrodokexpPreKeyStore::new(),
             identity_store: InMemIdentityKeyStore::new(key_pair, registration_id),
             sender_key_store: InMemSenderKeyStore::new(),
         })
@@ -393,6 +452,11 @@ impl InMemSignalProtocolStore {
     /// Returns all registered Kyber pre-key ids
     pub fn all_kyber_pre_key_ids(&self) -> impl Iterator<Item = &KyberPreKeyId> {
         self.kyber_pre_key_store.all_kyber_pre_key_ids()
+    }
+
+    /// Returns all registered Frodokexp decaps pre-key ids
+    pub fn all_frodokexp_pre_key_ids(&self) -> impl Iterator<Item = &FrodokexpPreKeyId> {
+        self.frodokexp_pre_key_store.all_frodokexp_pre_key_ids()
     }
 }
 
@@ -483,6 +547,37 @@ impl traits::KyberPreKeyStore for InMemSignalProtocolStore {
     async fn mark_kyber_pre_key_used(&mut self, kyber_prekey_id: KyberPreKeyId) -> Result<()> {
         self.kyber_pre_key_store
             .mark_kyber_pre_key_used(kyber_prekey_id)
+            .await
+    }
+}
+
+#[async_trait(?Send)]
+impl traits::FrodokexpPreKeyStore for InMemSignalProtocolStore {
+    async fn get_frodokexp_pre_key(
+        &self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+    ) -> Result<FrodokexpPreKeyRecord> {
+        self.frodokexp_pre_key_store
+            .get_frodokexp_pre_key(frodokexp_prekey_id)
+            .await
+    }
+
+    async fn save_frodokexp_pre_key(
+        &mut self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+        record: &FrodokexpPreKeyRecord,
+    ) -> Result<()> {
+        self.frodokexp_pre_key_store
+            .save_frodokexp_pre_key(frodokexp_prekey_id, record)
+            .await
+    }
+
+    async fn mark_frodokexp_pre_key_used(
+        &mut self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+    ) -> Result<()> {
+        self.frodokexp_pre_key_store
+            .mark_frodokexp_pre_key_used(frodokexp_prekey_id)
             .await
     }
 }

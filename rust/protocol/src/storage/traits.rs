@@ -12,8 +12,8 @@ use crate::address::ProtocolAddress;
 use crate::error::Result;
 use crate::sender_keys::SenderKeyRecord;
 use crate::state::{
-    KyberPreKeyId, KyberPreKeyRecord, PreKeyId, PreKeyRecord, SessionRecord, SignedPreKeyId,
-    SignedPreKeyRecord,
+    FrodokexpPreKeyId, FrodokexpPreKeyRecord, KyberPreKeyId, KyberPreKeyRecord, PreKeyId,
+    PreKeyRecord, SessionRecord, SignedPreKeyId, SignedPreKeyRecord,
 };
 use crate::{IdentityKey, IdentityKeyPair};
 
@@ -123,6 +123,30 @@ pub trait KyberPreKeyStore {
     async fn mark_kyber_pre_key_used(&mut self, kyber_prekey_id: KyberPreKeyId) -> Result<()>;
 }
 
+/// Interface for storing signed Frodokexp decaps pre-keys downloaded from a server.
+#[async_trait(?Send)]
+pub trait FrodokexpPreKeyStore {
+    /// Look up the signed frodokexp pre-key corresponding to `frodokexp_prekey_id`.
+    async fn get_frodokexp_pre_key(
+        &self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+    ) -> Result<FrodokexpPreKeyRecord>;
+
+    /// Set the entry for `frodokexp_prekey_id` to the value of `record`.
+    async fn save_frodokexp_pre_key(
+        &mut self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+        record: &FrodokexpPreKeyRecord,
+    ) -> Result<()>;
+
+    /// Mark the entry for `frodokexp_prekey_id` as "used".
+    /// This would mean different things for one-time and last-resort Frodokexp keys.
+    async fn mark_frodokexp_pre_key_used(
+        &mut self,
+        frodokexp_prekey_id: FrodokexpPreKeyId,
+    ) -> Result<()>;
+}
+
 /// Interface for a Signal client instance to store a session associated with another particular
 /// separate Signal client instance.
 ///
@@ -165,6 +189,11 @@ pub trait SenderKeyStore {
 
 /// Mixes in all the store interfaces defined in this module.
 pub trait ProtocolStore:
-    SessionStore + PreKeyStore + SignedPreKeyStore + KyberPreKeyStore + IdentityKeyStore
+    SessionStore
+    + PreKeyStore
+    + SignedPreKeyStore
+    + KyberPreKeyStore
+    + FrodokexpPreKeyStore
+    + IdentityKeyStore
 {
 }

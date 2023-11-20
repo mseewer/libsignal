@@ -4,7 +4,10 @@
 //
 
 use crate::state::{PreKeyId, SignedPreKeyId};
-use crate::{kem, DeviceId, IdentityKey, KyberPreKeyId, PublicKey, Result, SignalProtocolError};
+use crate::{
+    kem, skem, DeviceId, FrodokexpPreKeyId, IdentityKey, KyberPreKeyId, PublicKey, Result,
+    SignalProtocolError,
+};
 use std::clone::Clone;
 
 #[derive(Clone)]
@@ -41,6 +44,30 @@ impl KyberPreKey {
     }
 }
 
+#[derive(Clone)]
+struct FrodokexpPreKey {
+    id: FrodokexpPreKeyId,
+    public_key: skem::PublicKeyMaterial,
+    signature: Vec<u8>,
+    seed: skem::Seed,
+}
+
+impl FrodokexpPreKey {
+    fn new(
+        id: FrodokexpPreKeyId,
+        public_key: skem::PublicKeyMaterial,
+        signature: Vec<u8>,
+        seed: skem::Seed,
+    ) -> Self {
+        Self {
+            id,
+            public_key,
+            signature,
+            seed,
+        }
+    }
+}
+
 // Represents the raw contents of the pre-key bundle without any notion of required/optional
 // fields.
 // Can be used as a "builder" for PreKeyBundle, in which case all the validation will happen in
@@ -57,6 +84,10 @@ pub struct PreKeyBundleContent {
     pub kyber_pre_key_id: Option<KyberPreKeyId>,
     pub kyber_pre_key_public: Option<kem::PublicKey>,
     pub kyber_pre_key_signature: Option<Vec<u8>>,
+    pub frodokexp_pre_key_id: Option<FrodokexpPreKeyId>,
+    pub frodokexp_pre_key_public: Option<skem::PublicKeyMaterial>,
+    pub frodokexp_pre_key_signature: Option<Vec<u8>>,
+    pub frodokexp_pre_key_seed: Option<skem::Seed>,
 }
 
 impl From<PreKeyBundle> for PreKeyBundleContent {
@@ -79,6 +110,22 @@ impl From<PreKeyBundle> for PreKeyBundleContent {
                 .kyber_pre_key
                 .as_ref()
                 .map(|kyber| kyber.signature.clone()),
+            frodokexp_pre_key_id: bundle
+                .frodokexp_pre_key
+                .as_ref()
+                .map(|frodokexp| frodokexp.id),
+            frodokexp_pre_key_public: bundle
+                .frodokexp_pre_key
+                .as_ref()
+                .map(|frodokexp| frodokexp.public_key.clone()),
+            frodokexp_pre_key_signature: bundle
+                .frodokexp_pre_key
+                .as_ref()
+                .map(|frodokexp| frodokexp.signature.clone()),
+            frodokexp_pre_key_seed: bundle
+                .frodokexp_pre_key
+                .as_ref()
+                .map(|frodokexp| frodokexp.seed.clone()),
         }
     }
 }
@@ -126,6 +173,20 @@ impl TryFrom<PreKeyBundleContent> for PreKeyBundle {
         ) {
             bundle = bundle.with_kyber_pre_key(kyber_id, kyber_public, kyber_sig);
         }
+
+        if let Some((((frodokexp_id, frodokexp_public), frodokexp_sig), frodokexp_seed)) = content
+            .frodokexp_pre_key_id
+            .zip(content.frodokexp_pre_key_public)
+            .zip(content.frodokexp_pre_key_signature)
+            .zip(content.frodokexp_pre_key_seed)
+        {
+            bundle = bundle.with_frodokexp_pre_key(
+                frodokexp_id,
+                frodokexp_public,
+                frodokexp_sig,
+                frodokexp_seed,
+            );
+        }
         Ok(bundle)
     }
 }
@@ -141,6 +202,7 @@ pub struct PreKeyBundle {
     // Optional to support older clients
     // TODO: remove optionality once the transition is over
     kyber_pre_key: Option<KyberPreKey>,
+    frodokexp_pre_key: Option<FrodokexpPreKey>,
 }
 
 impl PreKeyBundle {
@@ -172,6 +234,7 @@ impl PreKeyBundle {
             ec_signed_pre_key,
             identity_key,
             kyber_pre_key: None,
+            frodokexp_pre_key: None,
         })
     }
 
@@ -182,6 +245,19 @@ impl PreKeyBundle {
         signature: Vec<u8>,
     ) -> Self {
         self.kyber_pre_key = Some(KyberPreKey::new(pre_key_id, public_key, signature));
+        self
+    }
+
+    pub fn with_frodokexp_pre_key(
+        mut self,
+        pre_key_id: FrodokexpPreKeyId,
+        public_key: skem::PublicKeyMaterial,
+        signature: Vec<u8>,
+        seed: skem::Seed,
+    ) -> Self {
+        self.frodokexp_pre_key = Some(FrodokexpPreKey::new(
+            pre_key_id, public_key, signature, seed,
+        ));
         self
     }
 
@@ -237,6 +313,35 @@ impl PreKeyBundle {
             .kyber_pre_key
             .as_ref()
             .map(|pre_key| pre_key.signature.as_ref()))
+    }
+
+    pub fn has_frodokexp_pre_key(&self) -> bool {
+        self.frodokexp_pre_key.is_some()
+    }
+
+    pub fn frodokexp_pre_key_id(&self) -> Result<Option<FrodokexpPreKeyId>> {
+        Ok(self.frodokexp_pre_key.as_ref().map(|pre_key| pre_key.id))
+    }
+
+    pub fn frodokexp_pre_key_public(&self) -> Result<Option<&skem::PublicKeyMaterial>> {
+        Ok(self
+            .frodokexp_pre_key
+            .as_ref()
+            .map(|pre_key| &pre_key.public_key))
+    }
+
+    pub fn frodokexp_pre_key_signature(&self) -> Result<Option<&[u8]>> {
+        Ok(self
+            .frodokexp_pre_key
+            .as_ref()
+            .map(|pre_key| pre_key.signature.as_ref()))
+    }
+
+    pub fn frodokexp_pre_key_seed(&self) -> Result<Option<&[u8]>> {
+        Ok(self
+            .frodokexp_pre_key
+            .as_ref()
+            .map(|pre_key| pre_key.seed.as_ref()))
     }
 
     pub fn modify<F>(self, modify: F) -> Result<Self>

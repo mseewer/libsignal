@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 
-use crate::state::{KyberPreKeyId, PreKeyId, SignedPreKeyId};
-use crate::{kem, proto, IdentityKey, PrivateKey, PublicKey, Result, SignalProtocolError};
+use crate::state::{FrodokexpPreKeyId, KyberPreKeyId, PreKeyId, SignedPreKeyId};
+use crate::{kem, proto, skem, IdentityKey, PrivateKey, PublicKey, Result, SignalProtocolError};
 
 use hmac::{Hmac, Mac};
 use prost::Message;
@@ -13,9 +13,11 @@ use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
-pub(crate) const CIPHERTEXT_MESSAGE_CURRENT_VERSION: u8 = 4;
-// Backward compatible, lacking Kyber keys, version
-pub(crate) const CIPHERTEXT_MESSAGE_PRE_KYBER_VERSION: u8 = 3;
+pub(crate) const CIPHERTEXT_MESSAGE_CURRENT_VERSION: u8 = 5;
+// Backward compatible, lacking Frodokexp keys, version
+pub(crate) const CIPHERTEXT_MESSAGE_PRE_FRODOKEXP_VERSION: u8 = 4;
+// Backward compatible, lacking Kyber + Frodokexp keys, version
+pub(crate) const CIPHERTEXT_MESSAGE_PRE_FRODOKEXP_KYBER_VERSION: u8 = 3;
 pub(crate) const SENDERKEY_MESSAGE_CURRENT_VERSION: u8 = 3;
 
 #[derive(Debug)]
@@ -193,7 +195,7 @@ impl TryFrom<&[u8]> for SignalMessage {
             return Err(SignalProtocolError::CiphertextMessageTooShort(value.len()));
         }
         let message_version = value[0] >> 4;
-        if message_version < CIPHERTEXT_MESSAGE_PRE_KYBER_VERSION {
+        if message_version < CIPHERTEXT_MESSAGE_PRE_FRODOKEXP_KYBER_VERSION {
             return Err(SignalProtocolError::LegacyCiphertextVersion(
                 message_version,
             ));
@@ -248,12 +250,41 @@ impl KyberPayload {
 }
 
 #[derive(Debug, Clone)]
+// Payload send by the sender to the receiver
+// just need the encaps output: ciphertext and tag
+// receiver will need
+//  - pp -> can be found in its own bundle
+pub struct FrodokexpPayload {
+    their_pre_key_id: FrodokexpPreKeyId,
+    ciphertext: skem::SerializedCiphertext,
+    tag: skem::SerializedTag,
+    public_key: skem::PublicKeyMaterial,
+}
+
+impl FrodokexpPayload {
+    pub fn new(
+        their_pre_key_id: FrodokexpPreKeyId,
+        ciphertext: skem::SerializedCiphertext,
+        tag: skem::SerializedTag,
+        public_key: skem::PublicKeyMaterial,
+    ) -> Self {
+        Self {
+            their_pre_key_id,
+            ciphertext,
+            tag,
+            public_key,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PreKeySignalMessage {
     message_version: u8,
     registration_id: u32,
     pre_key_id: Option<PreKeyId>,
     signed_pre_key_id: SignedPreKeyId,
     kyber_payload: Option<KyberPayload>,
+    frodokexp_payload: Option<FrodokexpPayload>,
     base_key: PublicKey,
     identity_key: IdentityKey,
     message: SignalMessage,
@@ -268,6 +299,7 @@ impl PreKeySignalMessage {
         pre_key_id: Option<PreKeyId>,
         signed_pre_key_id: SignedPreKeyId,
         kyber_payload: Option<KyberPayload>,
+        frodokexp_payload: Option<FrodokexpPayload>,
         base_key: PublicKey,
         identity_key: IdentityKey,
         message: SignalMessage,
@@ -280,6 +312,18 @@ impl PreKeySignalMessage {
             kyber_ciphertext: kyber_payload
                 .as_ref()
                 .map(|kyber| kyber.ciphertext.to_vec()),
+            frodokexp_pre_key_id: frodokexp_payload
+                .as_ref()
+                .map(|frodokexp| frodokexp.their_pre_key_id.into()),
+            frodokexp_ciphertext: frodokexp_payload
+                .as_ref()
+                .map(|frodokexp| frodokexp.ciphertext.to_vec()),
+            frodokexp_tag: frodokexp_payload
+                .as_ref()
+                .map(|frodokexp| frodokexp.tag.to_vec()),
+            frodokexp_public_key: frodokexp_payload
+                .as_ref()
+                .map(|frodokexp| frodokexp.public_key.serialize().to_vec()),
             base_key: Some(base_key.serialize().into_vec()),
             identity_key: Some(identity_key.serialize().into_vec()),
             message: Some(Vec::from(message.as_ref())),
@@ -295,6 +339,7 @@ impl PreKeySignalMessage {
             pre_key_id,
             signed_pre_key_id,
             kyber_payload,
+            frodokexp_payload,
             base_key,
             identity_key,
             message,
@@ -333,6 +378,34 @@ impl PreKeySignalMessage {
     }
 
     #[inline]
+    pub fn frodokexp_ciphertext(&self) -> Option<&skem::SerializedCiphertext> {
+        self.frodokexp_payload
+            .as_ref()
+            .map(|frodokexp| &frodokexp.ciphertext)
+    }
+
+    #[inline]
+    pub fn frodokexp_tag(&self) -> Option<&skem::SerializedTag> {
+        self.frodokexp_payload
+            .as_ref()
+            .map(|frodokexp| &frodokexp.tag)
+    }
+
+    #[inline]
+    pub fn frodokexp_public_key(&self) -> Option<&skem::PublicKeyMaterial> {
+        self.frodokexp_payload
+            .as_ref()
+            .map(|frodokexp| &frodokexp.public_key)
+    }
+
+    #[inline]
+    pub fn frodokexp_pre_key_id(&self) -> Option<FrodokexpPreKeyId> {
+        self.frodokexp_payload
+            .as_ref()
+            .map(|frodokexp| frodokexp.their_pre_key_id)
+    }
+
+    #[inline]
     pub fn base_key(&self) -> &PublicKey {
         &self.base_key
     }
@@ -368,7 +441,7 @@ impl TryFrom<&[u8]> for PreKeySignalMessage {
         }
 
         let message_version = value[0] >> 4;
-        if message_version < CIPHERTEXT_MESSAGE_PRE_KYBER_VERSION {
+        if message_version < CIPHERTEXT_MESSAGE_PRE_FRODOKEXP_KYBER_VERSION {
             return Err(SignalProtocolError::LegacyCiphertextVersion(
                 message_version,
             ));
@@ -402,7 +475,9 @@ impl TryFrom<&[u8]> for PreKeySignalMessage {
             proto_structure.kyber_ciphertext,
         ) {
             (Some(id), Some(ct)) => Some(KyberPayload::new(id.into(), ct.into_boxed_slice())),
-            (None, None) if message_version <= CIPHERTEXT_MESSAGE_PRE_KYBER_VERSION => None,
+            (None, None) if message_version <= CIPHERTEXT_MESSAGE_PRE_FRODOKEXP_KYBER_VERSION => {
+                None
+            }
             (None, None) => {
                 return Err(SignalProtocolError::InvalidMessage(
                     CiphertextMessageType::PreKey,
@@ -417,12 +492,45 @@ impl TryFrom<&[u8]> for PreKeySignalMessage {
             }
         };
 
+        let frodokexp_payload = match (
+            proto_structure.frodokexp_pre_key_id,
+            proto_structure.frodokexp_ciphertext,
+            proto_structure.frodokexp_tag,
+            proto_structure.frodokexp_public_key,
+        ) {
+            (Some(id), Some(ct), Some(tag), Some(public_key)) => Some(FrodokexpPayload::new(
+                id.into(),
+                ct.into_boxed_slice(),
+                tag.into_boxed_slice(),
+                skem::PublicKeyMaterial::deserialize(public_key.as_ref())
+                    .expect("Reading out Frodokexp payload public key should work"),
+            )),
+            (None, None, None, None)
+                if message_version <= CIPHERTEXT_MESSAGE_PRE_FRODOKEXP_VERSION =>
+            {
+                None
+            }
+            (None, None, None, None) => {
+                return Err(SignalProtocolError::InvalidMessage(
+                    CiphertextMessageType::PreKey,
+                    "Frodokexp pre key must be present for this session version",
+                ));
+            }
+            _ => {
+                return Err(SignalProtocolError::InvalidMessage(
+                    CiphertextMessageType::PreKey,
+                    "Both or neither frodokexp_pre_key_id, frodokexp_ciphertext, frodokexp_tag and frodokexp_public_key can be present",
+                ));
+            }
+        };
+
         Ok(PreKeySignalMessage {
             message_version,
             registration_id: proto_structure.registration_id.unwrap_or(0),
             pre_key_id: proto_structure.pre_key_id.map(|id| id.into()),
             signed_pre_key_id: signed_pre_key_id.into(),
             kyber_payload,
+            frodokexp_payload,
             base_key,
             identity_key: IdentityKey::try_from(identity_key.as_ref())?,
             message: SignalMessage::try_from(message.as_ref())?,
@@ -959,6 +1067,7 @@ mod tests {
             None,
             97.into(),
             None, // TODO: add kyber prekeys
+            None, // TODO: add frodokexp prekeys
             base_key_pair.public_key,
             identity_key_pair.public_key.into(),
             message,
@@ -1070,6 +1179,7 @@ mod tests {
             None,
             97.into(),
             None, // TODO: add kyber prekeys
+            None, // TODO: add frodokexp prekeys
             base_key_pair.public_key,
             identity_key_pair.public_key.into(),
             message,

@@ -4,8 +4,7 @@
 //
 
 use crate::curve::KeyType;
-use crate::kem;
-use crate::skem;
+use crate::{kem, skem};
 
 use displaydoc::Display;
 use thiserror::Error;
@@ -58,6 +57,8 @@ pub enum SignalProtocolError {
     InvalidSignedPreKeyId,
     /// invalid Kyber prekey identifier
     InvalidKyberPreKeyId,
+    /// invalid Frodokexp decapsulated prekey identifier
+    InvalidFrodokexpPreKeyId,
 
     /// invalid MAC key length <{0}>
     InvalidMacKeyLength(usize),
@@ -104,17 +105,19 @@ pub enum SignalProtocolError {
     BadKEMCiphertextLength(kem::KeyType, usize),
 
     /// bad SKEM key type <{0:#04x}>
-    BadSKEMKeyType(i32),
+    BadSKEMKeyType(u8),
     /// unexpected SKEM key type <{0:#04x}> (expected <{1:#04x}>)
     WrongSKEMKeyType(u8, u8),
     /// Mismatch of SKEM Secret Key Material, S Key has type {0} and F Key has type {1}
     MismatchSKEMSecretKeyMaterial(skem::KeyType, skem::KeyType),
     /// bad SKEM key length <{1}> for key with type <{0}>
     BadSKEMKeyLength(skem::KeyType, usize),
+    /// bad SKEM tag length <{1}> for key with type <{0}>
+    BadSKEMTagLength(skem::KeyType, usize),
     /// bad KEM ciphertext length <{1}> for key with type <{0}>
     BadSKEMCiphertextLength(skem::KeyType, usize),
-    /// Public Matrix is not stored
-    SKEMPublicMatrixNotStored,
+    /// bad SKEM key pair type <{0:#04x}>
+    BadSKEMKeyPairType(u8),
     /// Decapsulation failed
-    SKEMDecapsulationError
+    SKEMDecapsulationError,
 }

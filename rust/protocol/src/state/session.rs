@@ -10,11 +10,11 @@ use prost::Message;
 use subtle::ConstantTimeEq;
 
 use crate::ratchet::{ChainKey, MessageKeys, RootKey};
-use crate::{kem, IdentityKey, KeyPair, PrivateKey, PublicKey, SignalProtocolError};
+use crate::{kem, skem, IdentityKey, KeyPair, PrivateKey, PublicKey, SignalProtocolError};
 
 use crate::consts;
 use crate::proto::storage::{session_structure, RecordStructure, SessionStructure};
-use crate::state::{KyberPreKeyId, PreKeyId, SignedPreKeyId};
+use crate::state::{FrodokexpPreKeyId, KyberPreKeyId, PreKeyId, SignedPreKeyId};
 
 /// A distinct error type to keep from accidentally propagating deserialization errors.
 #[derive(Debug)]
@@ -39,19 +39,38 @@ pub(crate) struct UnacknowledgedPreKeyMessageItems<'a> {
     base_key: PublicKey,
     kyber_pre_key_id: Option<KyberPreKeyId>,
     kyber_ciphertext: Option<&'a [u8]>,
+    frodokexp_pre_key_id: Option<FrodokexpPreKeyId>,
+    frodokexp_ciphertext: Option<&'a [u8]>,
+    frodokexp_tag: Option<&'a [u8]>,
+    frodokexp_public_key: Option<&'a [u8]>,
     timestamp: SystemTime,
 }
-
+// Items in the first message that have not been acknowledged by the recipient.
+// first exchange of data?
 impl<'a> UnacknowledgedPreKeyMessageItems<'a> {
     fn new(
         pre_key_id: Option<PreKeyId>,
         signed_pre_key_id: SignedPreKeyId,
         base_key: PublicKey,
         pending_kyber_pre_key: Option<&'a session_structure::PendingKyberPreKey>,
+        pending_frodokexp_pre_key: Option<&'a session_structure::PendingFrodokexpPreKey>,
         timestamp: SystemTime,
     ) -> Self {
         let (kyber_pre_key_id, kyber_ciphertext) = pending_kyber_pre_key
             .map(|pending| (pending.pre_key_id.into(), pending.ciphertext.as_slice()))
+            .unzip();
+        let frodokexp_pre_key_id =
+            pending_frodokexp_pre_key.map(|pending| (pending.pre_key_id.into()));
+        let (frodokexp_ciphertext_tag, frodokexp_public_key) = pending_frodokexp_pre_key
+            .map(|pending| {
+                (
+                    (pending.ciphertext.as_slice(), pending.tag.as_slice()),
+                    pending.public_key.as_slice(),
+                )
+            })
+            .unzip();
+        let (frodokexp_ciphertext, frodokexp_tag) = frodokexp_ciphertext_tag
+            .map(|(ciphertext, tag)| (ciphertext, tag))
             .unzip();
         Self {
             pre_key_id,
@@ -59,6 +78,10 @@ impl<'a> UnacknowledgedPreKeyMessageItems<'a> {
             base_key,
             kyber_pre_key_id,
             kyber_ciphertext,
+            frodokexp_pre_key_id,
+            frodokexp_ciphertext,
+            frodokexp_tag,
+            frodokexp_public_key,
             timestamp,
         }
     }
@@ -81,6 +104,21 @@ impl<'a> UnacknowledgedPreKeyMessageItems<'a> {
 
     pub(crate) fn kyber_ciphertext(&self) -> Option<&'a [u8]> {
         self.kyber_ciphertext
+    }
+    pub(crate) fn frodokexp_pre_key_id(&self) -> Option<FrodokexpPreKeyId> {
+        self.frodokexp_pre_key_id
+    }
+
+    pub fn frodokexp_ciphertext(&self) -> Option<&'a [u8]> {
+        self.frodokexp_ciphertext
+    }
+
+    pub fn frodokexp_tag(&self) -> Option<&'a [u8]> {
+        self.frodokexp_tag
+    }
+
+    pub fn frodokexp_public_key(&self) -> Option<&'a [u8]> {
+        self.frodokexp_public_key
     }
 
     pub(crate) fn timestamp(&self) -> SystemTime {
@@ -116,6 +154,7 @@ impl SessionState {
                 receiver_chains: vec![],
                 pending_pre_key: None,
                 pending_kyber_pre_key: None,
+                pending_frodokexp_pre_key: None,
                 remote_registration_id: 0,
                 local_registration_id: 0,
                 alice_base_key: alice_base_key.serialize().into_vec(),
@@ -486,6 +525,22 @@ impl SessionState {
         self.session.pending_kyber_pre_key = Some(pending);
     }
 
+    #[allow(clippy::boxed_local)]
+    pub(crate) fn set_frodokexp_payload(
+        &mut self,
+        ciphertext: skem::SerializedCiphertext,
+        tag: skem::SerializedTag,
+        public_key: skem::PublicKeyMaterial,
+    ) {
+        let pending = session_structure::PendingFrodokexpPreKey {
+            pre_key_id: u32::MAX, // has to be set to the actual value separately
+            ciphertext: ciphertext.to_vec(),
+            tag: tag.to_vec(),
+            public_key: public_key.serialize().to_vec(),
+        };
+        self.session.pending_frodokexp_pre_key = Some(pending);
+    }
+
     pub(crate) fn set_unacknowledged_kyber_pre_key_id(
         &mut self,
         signed_kyber_pre_key_id: KyberPreKeyId,
@@ -498,6 +553,18 @@ impl SessionState {
         pending.pre_key_id = signed_kyber_pre_key_id.into();
     }
 
+    pub(crate) fn set_unacknowledged_frodokexp_pre_key_id(
+        &mut self,
+        signed_frodokexp_pre_key_id: FrodokexpPreKeyId,
+    ) {
+        let pending = self
+            .session
+            .pending_frodokexp_pre_key
+            .as_mut()
+            .expect("must have been set if frodokexp pre key is present");
+        pending.pre_key_id = signed_frodokexp_pre_key_id.into();
+    }
+
     pub(crate) fn unacknowledged_pre_key_message_items(
         &self,
     ) -> Result<Option<UnacknowledgedPreKeyMessageItems>, InvalidSessionError> {
@@ -508,6 +575,7 @@ impl SessionState {
                 PublicKey::deserialize(&pending_pre_key.base_key)
                     .map_err(|_| InvalidSessionError("invalid pending PreKey message base key"))?,
                 self.session.pending_kyber_pre_key.as_ref(),
+                self.session.pending_frodokexp_pre_key.as_ref(),
                 SystemTime::UNIX_EPOCH + Duration::from_secs(pending_pre_key.timestamp),
             )))
         } else {
@@ -540,6 +608,27 @@ impl SessionState {
             .pending_kyber_pre_key
             .as_ref()
             .map(|pending| &pending.ciphertext)
+    }
+
+    pub(crate) fn get_frodokexp_ciphertext(&self) -> Option<&Vec<u8>> {
+        self.session
+            .pending_frodokexp_pre_key
+            .as_ref()
+            .map(|pending| &pending.ciphertext)
+    }
+
+    pub(crate) fn get_frodokexp_tag(&self) -> Option<&Vec<u8>> {
+        self.session
+            .pending_frodokexp_pre_key
+            .as_ref()
+            .map(|pending| &pending.tag)
+    }
+
+    pub(crate) fn get_frodokexp_public_key(&self) -> Option<&Vec<u8>> {
+        self.session
+            .pending_frodokexp_pre_key
+            .as_ref()
+            .map(|pending| &pending.public_key)
     }
 }
 
@@ -807,5 +896,38 @@ impl SessionRecord {
                 )
             })?
             .get_kyber_ciphertext())
+    }
+
+    pub fn get_frodokexp_ciphertext(&self) -> Result<Option<&Vec<u8>>, SignalProtocolError> {
+        Ok(self
+            .session_state()
+            .ok_or_else(|| {
+                SignalProtocolError::InvalidState(
+                    "get_frodokexp_ciphertext",
+                    "No current session".into(),
+                )
+            })?
+            .get_frodokexp_ciphertext())
+    }
+
+    pub fn get_frodokexp_tag(&self) -> Result<Option<&Vec<u8>>, SignalProtocolError> {
+        Ok(self
+            .session_state()
+            .ok_or_else(|| {
+                SignalProtocolError::InvalidState("get_frodokexp_tag", "No current session".into())
+            })?
+            .get_frodokexp_tag())
+    }
+
+    pub fn get_frodokexp_public_key(&self) -> Result<Option<&Vec<u8>>, SignalProtocolError> {
+        Ok(self
+            .session_state()
+            .ok_or_else(|| {
+                SignalProtocolError::InvalidState(
+                    "get_frodokexp_public_key",
+                    "No current session".into(),
+                )
+            })?
+            .get_frodokexp_public_key())
     }
 }

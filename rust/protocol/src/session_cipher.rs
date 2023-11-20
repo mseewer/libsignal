@@ -11,9 +11,10 @@ use crate::consts::{MAX_FORWARD_JUMPS, MAX_UNACKNOWLEDGED_SESSION_AGE};
 use crate::ratchet::{ChainKey, MessageKeys};
 use crate::state::{InvalidSessionError, SessionState};
 use crate::{
-    session, CiphertextMessage, CiphertextMessageType, Direction, IdentityKeyStore, KeyPair,
-    KyberPayload, KyberPreKeyStore, PreKeySignalMessage, PreKeyStore, ProtocolAddress, PublicKey,
-    Result, SessionRecord, SessionStore, SignalMessage, SignalProtocolError, SignedPreKeyStore,
+    session, CiphertextMessage, CiphertextMessageType, Direction, FrodokexpPayload,
+    FrodokexpPreKeyStore, IdentityKeyStore, KeyPair, KyberPayload, KyberPreKeyStore,
+    PreKeySignalMessage, PreKeyStore, ProtocolAddress, PublicKey, Result, SessionRecord,
+    SessionStore, SignalMessage, SignalProtocolError, SignedPreKeyStore,
 };
 
 pub async fn message_encrypt(
@@ -96,12 +97,22 @@ pub async fn message_encrypt(
             .zip(items.kyber_ciphertext())
             .map(|(id, ciphertext)| KyberPayload::new(id, ciphertext.into()));
 
+        let frodokexp_payload = items
+            .frodokexp_pre_key_id()
+            .zip(items.frodokexp_ciphertext())
+            .zip(items.frodokexp_tag())
+            .zip(items.frodokexp_public_key())
+            .map(|(((id, ciphertext), tag), public_key)| {
+                FrodokexpPayload::new(id, ciphertext.into(), tag.into(), public_key.into())
+            });
+
         CiphertextMessage::PreKeySignalMessage(PreKeySignalMessage::new(
             session_version,
             local_registration_id,
             items.pre_key_id(),
             items.signed_pre_key_id(),
             kyber_payload,
+            frodokexp_payload,
             *items.base_key(),
             local_identity_key,
             message,
@@ -159,6 +170,7 @@ pub async fn message_decrypt<R: Rng + CryptoRng>(
     pre_key_store: &mut dyn PreKeyStore,
     signed_pre_key_store: &dyn SignedPreKeyStore,
     kyber_pre_key_store: &mut dyn KyberPreKeyStore,
+    frodokexp_pre_key_store: &mut dyn FrodokexpPreKeyStore,
     csprng: &mut R,
 ) -> Result<Vec<u8>> {
     match ciphertext {
@@ -174,6 +186,7 @@ pub async fn message_decrypt<R: Rng + CryptoRng>(
                 pre_key_store,
                 signed_pre_key_store,
                 kyber_pre_key_store,
+                frodokexp_pre_key_store,
                 csprng,
             )
             .await
@@ -184,7 +197,6 @@ pub async fn message_decrypt<R: Rng + CryptoRng>(
         ))),
     }
 }
-
 #[allow(clippy::too_many_arguments)]
 pub async fn message_decrypt_prekey<R: Rng + CryptoRng>(
     ciphertext: &PreKeySignalMessage,
@@ -194,6 +206,7 @@ pub async fn message_decrypt_prekey<R: Rng + CryptoRng>(
     pre_key_store: &mut dyn PreKeyStore,
     signed_pre_key_store: &dyn SignedPreKeyStore,
     kyber_pre_key_store: &mut dyn KyberPreKeyStore,
+    frodokexp_pre_key_store: &mut dyn FrodokexpPreKeyStore,
     csprng: &mut R,
 ) -> Result<Vec<u8>> {
     let mut session_record = session_store
@@ -210,6 +223,7 @@ pub async fn message_decrypt_prekey<R: Rng + CryptoRng>(
         pre_key_store,
         signed_pre_key_store,
         kyber_pre_key_store,
+        frodokexp_pre_key_store,
     )
     .await;
 
@@ -250,6 +264,12 @@ pub async fn message_decrypt_prekey<R: Rng + CryptoRng>(
     if let Some(kyber_pre_key_id) = pre_key_used.kyber_pre_key_id {
         kyber_pre_key_store
             .mark_kyber_pre_key_used(kyber_pre_key_id)
+            .await?;
+    }
+
+    if let Some(frodokexp_pre_key_id) = pre_key_used.frodokexp_pre_key_id {
+        frodokexp_pre_key_store
+            .mark_frodokexp_pre_key_used(frodokexp_pre_key_id)
             .await?;
     }
 

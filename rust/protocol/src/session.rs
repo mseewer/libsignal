@@ -6,9 +6,9 @@
 use std::time::SystemTime;
 
 use crate::{
-    kem, Direction, IdentityKeyStore, KeyPair, KyberPreKeyId, KyberPreKeyStore, PreKeyBundle,
-    PreKeyId, PreKeySignalMessage, PreKeyStore, ProtocolAddress, Result, SessionRecord,
-    SessionStore, SignalProtocolError, SignedPreKeyStore,
+    kem, skem, Direction, FrodokexpPreKeyId, FrodokexpPreKeyStore, IdentityKeyStore, KeyPair,
+    KyberPreKeyId, KyberPreKeyStore, PreKeyBundle, PreKeyId, PreKeySignalMessage, PreKeyStore,
+    ProtocolAddress, Result, SessionRecord, SessionStore, SignalProtocolError, SignedPreKeyStore,
 };
 
 use crate::ratchet;
@@ -20,6 +20,7 @@ use rand::{CryptoRng, Rng};
 pub struct PreKeysUsed {
     pub pre_key_id: Option<PreKeyId>,
     pub kyber_pre_key_id: Option<KyberPreKeyId>,
+    pub frodokexp_pre_key_id: Option<FrodokexpPreKeyId>,
 }
 
 /*
@@ -39,6 +40,7 @@ pub async fn process_prekey(
     pre_key_store: &dyn PreKeyStore,
     signed_prekey_store: &dyn SignedPreKeyStore,
     kyber_prekey_store: &dyn KyberPreKeyStore,
+    frodokexp_prekey_store: &dyn FrodokexpPreKeyStore,
 ) -> Result<PreKeysUsed> {
     let their_identity_key = message.identity_key();
 
@@ -57,6 +59,7 @@ pub async fn process_prekey(
         session_record,
         signed_prekey_store,
         kyber_prekey_store,
+        frodokexp_prekey_store,
         pre_key_store,
         identity_store,
     )
@@ -75,6 +78,7 @@ async fn process_prekey_impl(
     session_record: &mut SessionRecord,
     signed_prekey_store: &dyn SignedPreKeyStore,
     kyber_prekey_store: &dyn KyberPreKeyStore,
+    frodokexp_prekey_store: &dyn FrodokexpPreKeyStore,
     pre_key_store: &dyn PreKeyStore,
     identity_store: &dyn IdentityKeyStore,
 ) -> Result<PreKeysUsed> {
@@ -104,6 +108,20 @@ async fn process_prekey_impl(
         our_kyber_pre_key_pair = None;
     }
 
+    // From the PreKeyMessage we get which one of our (decaps) preKeys they used
+    // to encapsulate / generate the shared secret
+    let our_frodokexp_pre_key_pair: Option<skem::DecapsulatorKeyPair>;
+    if let Some(frodokexp_pre_key_id) = message.frodokexp_pre_key_id() {
+        our_frodokexp_pre_key_pair = Some(
+            frodokexp_prekey_store
+                .get_frodokexp_pre_key(frodokexp_pre_key_id)
+                .await?
+                .key_pair()?,
+        );
+    } else {
+        our_frodokexp_pre_key_pair = None;
+    }
+
     let our_one_time_pre_key_pair = if let Some(pre_key_id) = message.pre_key_id() {
         log::info!("processing PreKey message from {}", remote_address);
         Some(pre_key_store.get_pre_key(pre_key_id).await?.key_pair()?)
@@ -121,9 +139,13 @@ async fn process_prekey_impl(
         our_one_time_pre_key_pair,
         our_signed_pre_key_pair, // ratchet key
         our_kyber_pre_key_pair,
+        our_frodokexp_pre_key_pair,
         *message.identity_key(),
         *message.base_key(),
         message.kyber_ciphertext(),
+        message.frodokexp_ciphertext(),
+        message.frodokexp_tag(),
+        message.frodokexp_public_key(),
     );
 
     let mut new_session = ratchet::initialize_bob_session(&parameters)?;
@@ -136,6 +158,7 @@ async fn process_prekey_impl(
     let pre_keys_used = PreKeysUsed {
         pre_key_id: message.pre_key_id(),
         kyber_pre_key_id: message.kyber_pre_key_id(),
+        frodokexp_pre_key_id: message.frodokexp_pre_key_id(),
     };
     Ok(pre_keys_used)
 }
@@ -177,6 +200,17 @@ pub async fn process_prekey_bundle<R: Rng + CryptoRng>(
         }
     }
 
+    if let Some(frodokexp_public) = bundle.frodokexp_pre_key_public()? {
+        if !their_identity_key.public_key().verify_signature(
+            frodokexp_public.serialize().as_ref(),
+            bundle
+                .frodokexp_pre_key_signature()?
+                .expect("signature must be present"),
+        )? {
+            return Err(SignalProtocolError::SignatureValidationFailed);
+        }
+    }
+
     let mut session_record = session_store
         .load_session(remote_address)
         .await?
@@ -204,6 +238,17 @@ pub async fn process_prekey_bundle<R: Rng + CryptoRng>(
         parameters.set_their_kyber_pre_key(key);
     }
 
+    if let Some(seed) = bundle.frodokexp_pre_key_seed()? {
+        // assume frodokexp wants to be used
+        let key_pair =
+            skem::Encapsulator::generate_key_pair_from_seed(skem::KeyType::Frodokexp, seed);
+        parameters.set_our_frodokexp_key_pair(&key_pair);
+    }
+
+    if let Some(their_public_key) = bundle.frodokexp_pre_key_public()? {
+        parameters.set_their_frodokexp_pre_key(their_public_key);
+    }
+
     let mut session = ratchet::initialize_alice_session(&parameters, csprng)?;
 
     log::info!(
@@ -221,6 +266,10 @@ pub async fn process_prekey_bundle<R: Rng + CryptoRng>(
 
     if let Some(kyber_pre_key_id) = bundle.kyber_pre_key_id()? {
         session.set_unacknowledged_kyber_pre_key_id(kyber_pre_key_id);
+    }
+
+    if let Some(frodokexp_pre_key_id) = bundle.frodokexp_pre_key_id()? {
+        session.set_unacknowledged_frodokexp_pre_key_id(frodokexp_pre_key_id);
     }
 
     session.set_local_registration_id(identity_store.get_local_registration_id().await?);
