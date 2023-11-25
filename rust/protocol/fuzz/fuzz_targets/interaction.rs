@@ -92,6 +92,7 @@ impl Participant {
             &them.address,
             &mut self.store.session_store,
             &mut self.store.identity_store,
+            &mut self.store.kyber_long_term_store,
             &their_pre_key_bundle,
             SystemTime::UNIX_EPOCH,
             rng,

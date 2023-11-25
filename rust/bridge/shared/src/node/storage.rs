@@ -781,6 +781,401 @@ impl IdentityKeyStore for NodeIdentityKeyStore {
     }
 }
 
+pub struct NodeKyberLongTermKeyStore {
+    js_channel: Channel,
+    store_object: Arc<Root<JsObject>>,
+}
+
+impl NodeKyberLongTermKeyStore {
+    pub(crate) fn new(cx: &mut FunctionContext, store: Handle<JsObject>) -> Self {
+        Self {
+            js_channel: cx.channel(),
+            store_object: Arc::new(store.root(cx)),
+        }
+    }
+
+    async fn do_get_local_kyber_long_term_key_pair(&self) -> Result<KyberLongTermKeyPair, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let store_object = store_object_shared.to_inner(cx);
+
+            let result = call_method(cx, store_object, "_getLocalKyberLongTermKeyPair", [])?;
+            let result = result.downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<DefaultJsBox<KyberLongTermKeyPair>, _>(cx) {
+                Ok(obj) => Ok((***obj).clone()),
+                Err(_) => Err("result must be an object".to_owned()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_save_kyber_longterm(
+        &self,
+        name: ProtocolAddress,
+        key: KyberLongTermKeyPublic,
+    ) -> Result<bool, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let name: Handle<JsValue> = name.convert_into(cx)?;
+            let key: Handle<JsValue> = key.convert_into(cx)?;
+            let store_object = store_object_shared.to_inner(cx);
+            let result = call_method(cx, store_object, "_saveKyberLongterm", [name, key])?
+                .downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<JsBoolean, _>(cx) {
+                Ok(b) => Ok(b.value(cx)),
+                Err(_) => Err("unexpected result from _saveKyberLongterm".into()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_get_kyber_long_term_key(
+        &self,
+        name: ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let name: Handle<JsValue> = name.convert_into(cx)?;
+            let store_object = store_object_shared.to_inner(cx);
+            let result = call_method(cx, store_object, "_getKyberLongterm", [name])?;
+            let result = result.downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<DefaultJsBox<KyberLongTermKeyPublic>, _>(cx) {
+                Ok(obj) => Ok(Some((***obj).clone())),
+                Err(_) => {
+                    if value.is_a::<JsNull, _>(cx) {
+                        Ok(None)
+                    } else {
+                        Err("result must be an object".to_owned())
+                    }
+                }
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+}
+
+impl Finalize for NodeKyberLongTermKeyStore {
+    fn finalize<'b, C: neon::prelude::Context<'b>>(self, cx: &mut C) {
+        self.store_object.finalize(cx)
+    }
+}
+
+#[async_trait(?Send)]
+impl KyberLongTermKeyStore for NodeKyberLongTermKeyStore {
+    async fn get_local_kyber_long_term_key_pair(
+        &self,
+    ) -> Result<KyberLongTermKeyPair, SignalProtocolError> {
+        self.do_get_local_kyber_long_term_key_pair()
+            .await
+            .map_err(|s| js_error_to_rust("getLocalKyberLongTermKeyPair", s))
+    }
+
+    async fn save_kyber_longterm(
+        &mut self,
+        address: &ProtocolAddress,
+        kyber_long_term_key_public: &KyberLongTermKeyPublic,
+    ) -> Result<bool, SignalProtocolError> {
+        self.do_save_kyber_longterm(address.clone(), kyber_long_term_key_public.clone())
+            .await
+            .map_err(|s| js_error_to_rust("saveKyberLongterm", s.to_string()))
+    }
+
+    async fn get_kyber_long_term_key(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>, SignalProtocolError> {
+        self.do_get_kyber_long_term_key(address.clone())
+            .await
+            .map_err(|s| js_error_to_rust("getKyberLongterm", s.to_string()))
+    }
+}
+
+pub struct NodeFalconSignatureStore {
+    js_channel: Channel,
+    store_object: Arc<Root<JsObject>>,
+}
+
+impl NodeFalconSignatureStore {
+    pub(crate) fn new(cx: &mut FunctionContext, store: Handle<JsObject>) -> Self {
+        Self {
+            js_channel: cx.channel(),
+            store_object: Arc::new(store.root(cx)),
+        }
+    }
+
+    async fn do_get_falcon_key_pair(&self) -> Result<FalconKeyPair, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let store_object = store_object_shared.to_inner(cx);
+
+            let result = call_method(cx, store_object, "_getFalconKeyPair", [])?;
+            let result = result.downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<DefaultJsBox<FalconKeyPair>, _>(cx) {
+                Ok(obj) => Ok((***obj).clone()),
+                Err(_) => Err("result must be an object".to_owned()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+    async fn do_save_falcon_public(
+        &self,
+        name: ProtocolAddress,
+        key: FalconPublicKey,
+    ) -> Result<bool, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let name: Handle<JsValue> = name.convert_into(cx)?;
+            let key: Handle<JsValue> = key.convert_into(cx)?;
+            let store_object = store_object_shared.to_inner(cx);
+            let result = call_method(cx, store_object, "_saveFalconPublic", [name, key])?
+                .downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<JsBoolean, _>(cx) {
+                Ok(b) => Ok(b.value(cx)),
+                Err(_) => Err("unexpected result from _saveFalconPublic".into()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_sign_with_falcon(&self, message: Vec<u8>) -> Result<FalconSignature, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let message_buf: Handle<JsBuffer> = message.convert_into(cx)?;
+            let message: Handle<JsValue> = message_buf.upcast();
+            let store_object = store_object_shared.to_inner(cx);
+            let result = call_method(cx, store_object, "_signWithFalcon", [message])?
+                .downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<DefaultJsBox<FalconSignature>, _>(cx) {
+                Ok(obj) => Ok((***obj).clone()),
+                Err(_) => Err("result must be an object".to_owned()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_verify_signature(
+        &self,
+        name: ProtocolAddress,
+        message: Vec<u8>,
+        signature: FalconSignature,
+    ) -> Result<(), String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let name: Handle<JsValue> = name.convert_into(cx)?;
+            let message_buf: Handle<JsBuffer> = message.convert_into(cx)?;
+            let message: Handle<JsValue> = message_buf.upcast();
+            let signature: Handle<JsValue> = signature.convert_into(cx)?;
+            let store_object = store_object_shared.to_inner(cx);
+            let result = call_method(
+                cx,
+                store_object,
+                "_verifySignature",
+                [name, message, signature],
+            )?
+            .downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<JsUndefined, _>(cx) {
+                Ok(_) => Ok(()),
+                Err(_) => Err("unexpected result from _verifySignature".into()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_verify_signature_with_public_key(
+        &self,
+        public_key: FalconPublicKey,
+        message: Vec<u8>,
+        signature: FalconSignature,
+    ) -> Result<(), String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let public_key: Handle<JsValue> = public_key.convert_into(cx)?;
+            let message_buf: Handle<JsBuffer> = message.convert_into(cx)?;
+            let message: Handle<JsValue> = message_buf.upcast();
+            let signature: Handle<JsValue> = signature.convert_into(cx)?;
+            let store_object = store_object_shared.to_inner(cx);
+            let result = call_method(
+                cx,
+                store_object,
+                "_verifySignatureWithPublicKey",
+                [public_key, message, signature],
+            )?
+            .downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| match result {
+            Ok(value) => match value.downcast::<JsUndefined, _>(cx) {
+                Ok(_) => Ok(()),
+                Err(_) => Err("unexpected result from _verifySignatureWithPublicKey".into()),
+            },
+            Err(error) => Err(error
+                .to_string(cx)
+                .expect("can convert to string")
+                .value(cx)),
+        })
+        .await
+    }
+
+    async fn do_get_falcon_public(
+        &self,
+        name: ProtocolAddress,
+    ) -> Result<Option<FalconPublicKey>, String> {
+        let store_object_shared = self.store_object.clone();
+        JsFuture::get_promise(&self.js_channel, move |cx| {
+            let name: Handle<JsValue> = name.convert_into(cx)?;
+            let store_object = store_object_shared.to_inner(cx);
+            let result = call_method(cx, store_object, "_getFalconPublic", [name])?;
+            let result = result.downcast_or_throw(cx)?;
+            store_object_shared.finalize(cx);
+            Ok(result)
+        })
+        .then(|cx, result| {
+            if let Ok(value) = result {
+                match value.downcast::<DefaultJsBox<FalconPublicKey>, _>(cx) {
+                    Ok(obj) => Ok(Some((***obj).clone())),
+                    Err(_) => {
+                        if value.is_a::<JsNull, _>(cx) {
+                            Ok(None)
+                        } else {
+                            Err("result must be an object".to_owned())
+                        }
+                    }
+                }
+            } else {
+                Err(result
+                    .err()
+                    .expect("can convert to string")
+                    .to_string(cx)
+                    .expect("can convert to string")
+                    .value(cx))
+            }
+        })
+        .await
+    }
+}
+
+impl Finalize for NodeFalconSignatureStore {
+    fn finalize<'b, C: neon::prelude::Context<'b>>(self, cx: &mut C) {
+        self.store_object.finalize(cx)
+    }
+}
+
+#[async_trait(?Send)]
+impl FalconSignatureStore for NodeFalconSignatureStore {
+    async fn get_falcon_key_pair(&self) -> Result<FalconKeyPair, SignalProtocolError> {
+        self.do_get_falcon_key_pair()
+            .await
+            .map_err(|s| js_error_to_rust("getFalconKeyPair", s))
+    }
+
+    async fn save_falcon_public(
+        &mut self,
+        address: &ProtocolAddress,
+        falcon_public_key: &FalconPublicKey,
+    ) -> Result<bool, SignalProtocolError> {
+        self.do_save_falcon_public(address.clone(), falcon_public_key.clone())
+            .await
+            .map_err(|s| js_error_to_rust("saveFalconPublic", s.to_string()))
+    }
+
+    async fn sign_with_falcon(&self, msg: &[u8]) -> FalconSignature {
+        let res = self.do_sign_with_falcon(msg.to_vec()).await;
+        res.unwrap()
+    }
+
+    async fn verify_signature(
+        &self,
+        address: &ProtocolAddress,
+        message: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalProtocolError> {
+        self.do_verify_signature(address.clone(), message.to_vec(), signature.clone())
+            .await
+            .map_err(|s| js_error_to_rust("verifySignature", s))
+    }
+
+    async fn verify_signature_with_public_key(
+        &self,
+        public_key: &FalconPublicKey,
+        message: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalProtocolError> {
+        self.do_verify_signature_with_public_key(
+            public_key.clone(),
+            message.to_vec(),
+            signature.clone(),
+        )
+        .await
+        .map_err(|s| js_error_to_rust("verifySignatureWithPublicKey", s))
+    }
+
+    async fn get_falcon_public(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<FalconPublicKey>, SignalProtocolError> {
+        self.do_get_falcon_public(address.clone())
+            .await
+            .map_err(|s| js_error_to_rust("getFalconPublic", s))
+    }
+}
+
 pub struct NodeSenderKeyStore {
     js_channel: Channel,
     store_object: Arc<Root<JsObject>>,

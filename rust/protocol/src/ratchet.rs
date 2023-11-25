@@ -109,7 +109,15 @@ pub(crate) fn initialize_alice_session<R: Rng + CryptoRng>(
     });
     let has_frodokexp = parameters.their_frodokexp_pre_key().is_some();
 
-    let (root_key, chain_key) = derive_keys(has_kyber, has_frodokexp, &secrets);
+    let kyber_longterm_ciphertext = parameters.their_kyber_long_term_key().map(|kyber_public| {
+        let (ss, ct) = kyber_public.encapsulate();
+        secrets.extend_from_slice(ss.as_ref());
+        ct
+    });
+
+    let has_kwaay = has_frodokexp && parameters.their_kyber_long_term_key().is_some();
+
+    let (root_key, chain_key) = derive_keys(has_kyber, has_kwaay, &secrets);
 
     let (sending_chain_root_key, sending_chain_chain_key) = root_key.create_chain(
         parameters.their_ratchet_key(),
@@ -117,7 +125,7 @@ pub(crate) fn initialize_alice_session<R: Rng + CryptoRng>(
     )?;
 
     let mut session = SessionState::new(
-        message_version(has_kyber, has_frodokexp),
+        message_version(has_kyber, has_kwaay),
         local_identity,
         parameters.their_identity_key(),
         &sending_chain_root_key,
@@ -137,6 +145,9 @@ pub(crate) fn initialize_alice_session<R: Rng + CryptoRng>(
             frodokexp_tag,
             frodokexp_own_public_key,
         );
+    }
+    if let Some(kyber_longterm_ciphertext) = kyber_longterm_ciphertext {
+        session.set_kyber_longterm_ciphertext(kyber_longterm_ciphertext);
     }
 
     Ok(session)
@@ -219,10 +230,26 @@ pub(crate) fn initialize_bob_session(
     }
     let has_frodokexp = parameters.our_frodokexp_pre_key_pair().is_some();
 
-    let (root_key, chain_key) = derive_keys(has_kyber, has_frodokexp, &secrets);
+    match (
+        parameters.our_kyber_long_term_key_pair(),
+        parameters.their_kyber_longterm_ciphertext(),
+    ) {
+        (Some(key_pair), Some(ciphertext)) => {
+            let ss = key_pair.secret_key.decapsulate(ciphertext)?;
+            secrets.extend_from_slice(ss.as_ref());
+        }
+        (_, None) => (), // Alice does not support kyber longterm keys
+        _ => {
+            panic!("Either both or none of the kyber longterm keys and ciphertext can be provided")
+        }
+    }
+
+    let has_kwaay = has_frodokexp && parameters.our_kyber_long_term_key_pair().is_some();
+
+    let (root_key, chain_key) = derive_keys(has_kyber, has_kwaay, &secrets);
 
     let session = SessionState::new(
-        message_version(has_kyber, has_frodokexp),
+        message_version(has_kyber, has_kwaay),
         local_identity,
         parameters.their_identity_key(),
         &root_key,

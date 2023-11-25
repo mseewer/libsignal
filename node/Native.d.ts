@@ -54,6 +54,21 @@ export abstract class FrodokexpPreKeyStore {
   _markFrodokexpPreKeyUsed(frodokexpPreKeyId: number): Promise<void>;
 }
 
+export abstract class KyberLongTermKeyStore {
+  _getLocalKyberLongTermKeyPair(): Promise<KyberLongTermKeyPair>;
+  _saveKyberLongTermKey(address: ProtocolAddress, kyber_long_term_key_public: KyberLongTermKeyPublic): Promise<boolean>;
+  _getKyberLongTermKey(address: ProtocolAddress): Promise<KyberLongTermKeyPublic> | null;
+}
+
+export abstract class FalconSignatureStore {
+  _getFalconKeyPair(): Promise<FalconKeyPair>;
+  _saveFalconPublic(address: ProtocolAddress, falcon_public_key: FalconPublicKey): Promise<boolean>;
+  _signWithFalcon(msg: Buffer): Promise<FalconSignature>;
+  _verfiySignature(address: ProtocolAddress, msg: Buffer, signature: FalconSignature): Promise<void>;
+  _verifySignatureWithPublicKey(publicKey: FalconPublicKey, msg: Buffer, signature: FalconSignature): Promise<void>;
+  _getFalconPublic(address: ProtocolAddress): Promise<FalconPublicKey> | null;
+}
+
 export abstract class SenderKeyStore {
   _saveSenderKey(sender: ProtocolAddress, distributionId: Uuid, record: SenderKeyRecord): Promise<void>;
   _getSenderKey(sender: ProtocolAddress, distributionId: Uuid): Promise<SenderKeyRecord | null>;
@@ -199,6 +214,9 @@ export function IncrementalMac_Update(mac: Wrapper<IncrementalMac>, bytes: Buffe
 export function KyberKeyPair_Generate(): KyberKeyPair;
 export function KyberKeyPair_GetPublicKey(keyPair: Wrapper<KyberKeyPair>): KyberPublicKey;
 export function KyberKeyPair_GetSecretKey(keyPair: Wrapper<KyberKeyPair>): KyberSecretKey;
+export function KyberLongTermKeyPair_Generate(): KyberLongTermKeyPair;
+export function KyberLongTermKeyPair_GetPublicKey(keyPair: Wrapper<KyberLongTermKeyPair>): KyberLongTermKeyPublic;
+export function KyberLongTermKeyPair_GetSecretKey(keyPair: Wrapper<KyberLongTermKeyPair>): KyberLongTermKeySecret;
 export function KyberPreKeyRecord_Deserialize(data: Buffer): KyberPreKeyRecord;
 export function KyberPreKeyRecord_GetId(obj: Wrapper<KyberPreKeyRecord>): number;
 export function KyberPreKeyRecord_GetKeyPair(obj: Wrapper<KyberPreKeyRecord>): KyberKeyPair;
@@ -297,7 +315,7 @@ export function SealedSenderDecryptionResult_GetDeviceId(obj: Wrapper<SealedSend
 export function SealedSenderDecryptionResult_GetSenderE164(obj: Wrapper<SealedSenderDecryptionResult>): string | null;
 export function SealedSenderDecryptionResult_GetSenderUuid(obj: Wrapper<SealedSenderDecryptionResult>): string;
 export function SealedSenderDecryptionResult_Message(obj: Wrapper<SealedSenderDecryptionResult>): Buffer;
-export function SealedSender_DecryptMessage(message: Buffer, trustRoot: Wrapper<PublicKey>, timestamp: Timestamp, localE164: string | null, localUuid: string, localDeviceId: number, sessionStore: SessionStore, identityStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore, frodokexpPrekeyStore: FrodokexpPreKeyStore): Promise<SealedSenderDecryptionResult>;
+export function SealedSender_DecryptMessage(message: Buffer, trustRoot: Wrapper<PublicKey>, timestamp: Timestamp, localE164: string | null, localUuid: string, localDeviceId: number, sessionStore: SessionStore, identityStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore, frodokexpPrekeyStore: FrodokexpPreKeyStore, kyberLongtermkeyStore: KyberLongTermKeyStore): Promise<SealedSenderDecryptionResult>;
 export function SealedSender_DecryptToUsmc(ctext: Buffer, identityStore: IdentityKeyStore): Promise<UnidentifiedSenderMessageContent>;
 export function SealedSender_Encrypt(destination: Wrapper<ProtocolAddress>, content: Wrapper<UnidentifiedSenderMessageContent>, identityKeyStore: IdentityKeyStore): Promise<Buffer>;
 export function SealedSender_MultiRecipientEncrypt(recipients: Wrapper<ProtocolAddress>[], recipientSessions: Wrapper<SessionRecord>[], content: Wrapper<UnidentifiedSenderMessageContent>, identityKeyStore: IdentityKeyStore): Promise<Buffer>;
@@ -370,8 +388,8 @@ export function ServiceId_ParseFromServiceIdString(input: string): Buffer;
 export function ServiceId_ServiceIdBinary(value: Buffer): Buffer;
 export function ServiceId_ServiceIdLog(value: Buffer): string;
 export function ServiceId_ServiceIdString(value: Buffer): string;
-export function SessionBuilder_ProcessPreKeyBundle(bundle: Wrapper<PreKeyBundle>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, now: Timestamp): Promise<void>;
-export function SessionCipher_DecryptPreKeySignalMessage(message: Wrapper<PreKeySignalMessage>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore, frodokexpPrekeyStore: FrodokexpPreKeyStore): Promise<Buffer>;
+export function SessionBuilder_ProcessPreKeyBundle(bundle: Wrapper<PreKeyBundle>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, kyberLongtermKeyStore: KyberLongTermKeyStore, falconSignatureStore: FalconSignatureStore, now: Timestamp): Promise<void>;
+export function SessionCipher_DecryptPreKeySignalMessage(message: Wrapper<PreKeySignalMessage>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, prekeyStore: PreKeyStore, signedPrekeyStore: SignedPreKeyStore, kyberPrekeyStore: KyberPreKeyStore, frodokexpPrekeyStore: FrodokexpPreKeyStore, kyberLongtermkeyStore: KyberLongTermKeyStore): Promise<Buffer>;
 export function SessionCipher_DecryptSignalMessage(message: Wrapper<SignalMessage>, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore): Promise<Buffer>;
 export function SessionCipher_EncryptMessage(ptext: Buffer, protocolAddress: Wrapper<ProtocolAddress>, sessionStore: SessionStore, identityKeyStore: IdentityKeyStore, now: Timestamp): Promise<CiphertextMessage>;
 export function SessionRecord_ArchiveCurrentState(sessionRecord: Wrapper<SessionRecord>): void;
@@ -454,6 +472,8 @@ interface ConnectionManager { readonly __type: unique symbol; }
 interface DecryptionErrorMessage { readonly __type: unique symbol; }
 interface ExpiringProfileKeyCredential { readonly __type: unique symbol; }
 interface ExpiringProfileKeyCredentialResponse { readonly __type: unique symbol; }
+interface FalconPublicKey { readonly __type: unique symbol; }
+interface FalconSignature { readonly __type: unique symbol; }
 interface Fingerprint { readonly __type: unique symbol; }
 interface FrodokexpDecapsulatorKeyPair { readonly __type: unique symbol; }
 interface FrodokexpEncapsulatorKeyPair { readonly __type: unique symbol; }

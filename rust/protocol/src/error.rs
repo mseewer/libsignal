@@ -120,4 +120,10 @@ pub enum SignalProtocolError {
     BadSKEMKeyPairType(u8),
     /// Decapsulation failed
     SKEMDecapsulationError,
+    /// Falcon Signature Verification failed
+    FalconSignatureVerificationError,
+    /// Falcon reading from bytes failed
+    FalconReadingFromBytesError,
+    /// Invalid Signature Version <{0}>
+    InvalidSignatureVersion(u8),
 }

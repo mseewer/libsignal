@@ -160,6 +160,8 @@ fn test_sealed_sender() -> Result<(), SignalProtocolError> {
             &bob_uuid_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::now(),
             &mut rng,
@@ -210,6 +212,7 @@ fn test_sealed_sender() -> Result<(), SignalProtocolError> {
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
             &mut bob_store.frodokexp_pre_key_store,
+            &mut bob_store.kyber_long_term_store,
         )
         .await?;
 
@@ -244,6 +247,7 @@ fn test_sealed_sender() -> Result<(), SignalProtocolError> {
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
             &mut bob_store.frodokexp_pre_key_store,
+            &mut bob_store.kyber_long_term_store,
         )
         .await;
 
@@ -285,6 +289,7 @@ fn test_sealed_sender() -> Result<(), SignalProtocolError> {
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
             &mut bob_store.frodokexp_pre_key_store,
+            &mut bob_store.kyber_long_term_store,
         )
         .await;
 
@@ -334,6 +339,8 @@ fn test_sender_key_in_sealed_sender() -> Result<(), SignalProtocolError> {
             &bob_uuid_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::now(),
             &mut rng,
@@ -447,6 +454,8 @@ fn test_sealed_sender_multi_recipient() -> Result<(), SignalProtocolError> {
             &bob_uuid_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::now(),
             &mut rng,
@@ -519,6 +528,7 @@ fn test_sealed_sender_multi_recipient() -> Result<(), SignalProtocolError> {
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
             &mut bob_store.frodokexp_pre_key_store,
+            &mut bob_store.kyber_long_term_store,
         )
         .await?;
 
@@ -584,6 +594,7 @@ fn test_sealed_sender_multi_recipient() -> Result<(), SignalProtocolError> {
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
             &mut bob_store.frodokexp_pre_key_store,
+            &mut bob_store.kyber_long_term_store,
         )
         .await;
 
@@ -645,6 +656,7 @@ fn test_sealed_sender_multi_recipient() -> Result<(), SignalProtocolError> {
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
             &mut bob_store.frodokexp_pre_key_store,
+            &mut bob_store.kyber_long_term_store,
         )
         .await;
 
@@ -691,6 +703,8 @@ fn test_sealed_sender_multi_recipient_new_derivation() -> Result<(), SignalProto
             &bob_uuid_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::now(),
             &mut rng,
@@ -762,6 +776,7 @@ fn test_sealed_sender_multi_recipient_new_derivation() -> Result<(), SignalProto
             &bob_store.signed_pre_key_store,
             &mut bob_store.kyber_pre_key_store,
             &mut bob_store.frodokexp_pre_key_store,
+            &mut bob_store.kyber_long_term_store,
         )
         .await?;
 
@@ -803,6 +818,8 @@ fn test_sealed_sender_multi_recipient_encrypt_with_archived_session(
             &bob_uuid_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::now(),
             &mut rng,
@@ -908,6 +925,8 @@ fn test_sealed_sender_multi_recipient_encrypt_with_bad_registration_id(
             &bob_uuid_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::now(),
             &mut rng,
@@ -1003,6 +1022,8 @@ fn test_decryption_error_in_sealed_sender() -> Result<(), SignalProtocolError> {
             &alice_uuid_address,
             &mut bob_store.session_store,
             &mut bob_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &alice_pre_key_bundle,
             SystemTime::now(),
             &mut rng,
@@ -1029,6 +1050,7 @@ fn test_decryption_error_in_sealed_sender() -> Result<(), SignalProtocolError> {
             &alice_store.signed_pre_key_store,
             &mut alice_store.kyber_pre_key_store,
             &mut alice_store.frodokexp_pre_key_store,
+            &mut alice_store.kyber_long_term_store,
             &mut rng,
         )
         .await?;

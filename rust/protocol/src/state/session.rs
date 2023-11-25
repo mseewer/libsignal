@@ -10,7 +10,10 @@ use prost::Message;
 use subtle::ConstantTimeEq;
 
 use crate::ratchet::{ChainKey, MessageKeys, RootKey};
-use crate::{kem, skem, IdentityKey, KeyPair, PrivateKey, PublicKey, SignalProtocolError};
+use crate::{
+    kem, skem, IdentityKey, KeyPair, PrivateKey, PublicKey,
+    SignalProtocolError,
+};
 
 use crate::consts;
 use crate::proto::storage::{session_structure, RecordStructure, SessionStructure};
@@ -39,6 +42,7 @@ pub(crate) struct UnacknowledgedPreKeyMessageItems<'a> {
     base_key: PublicKey,
     kyber_pre_key_id: Option<KyberPreKeyId>,
     kyber_ciphertext: Option<&'a [u8]>,
+    kyber_longterm_ciphertext: Option<&'a [u8]>,
     frodokexp_pre_key_id: Option<FrodokexpPreKeyId>,
     frodokexp_ciphertext: Option<&'a [u8]>,
     frodokexp_tag: Option<&'a [u8]>,
@@ -46,7 +50,6 @@ pub(crate) struct UnacknowledgedPreKeyMessageItems<'a> {
     timestamp: SystemTime,
 }
 // Items in the first message that have not been acknowledged by the recipient.
-// first exchange of data?
 impl<'a> UnacknowledgedPreKeyMessageItems<'a> {
     fn new(
         pre_key_id: Option<PreKeyId>,
@@ -54,6 +57,7 @@ impl<'a> UnacknowledgedPreKeyMessageItems<'a> {
         base_key: PublicKey,
         pending_kyber_pre_key: Option<&'a session_structure::PendingKyberPreKey>,
         pending_frodokexp_pre_key: Option<&'a session_structure::PendingFrodokexpPreKey>,
+        kyber_longterm: Option<&'a session_structure::KyberLongTerm>,
         timestamp: SystemTime,
     ) -> Self {
         let (kyber_pre_key_id, kyber_ciphertext) = pending_kyber_pre_key
@@ -72,12 +76,14 @@ impl<'a> UnacknowledgedPreKeyMessageItems<'a> {
         let (frodokexp_ciphertext, frodokexp_tag) = frodokexp_ciphertext_tag
             .map(|(ciphertext, tag)| (ciphertext, tag))
             .unzip();
+        let kyber_longterm_ciphertext = kyber_longterm.map(|option| option.ciphertext.as_slice());
         Self {
             pre_key_id,
             signed_pre_key_id,
             base_key,
             kyber_pre_key_id,
             kyber_ciphertext,
+            kyber_longterm_ciphertext,
             frodokexp_pre_key_id,
             frodokexp_ciphertext,
             frodokexp_tag,
@@ -105,6 +111,11 @@ impl<'a> UnacknowledgedPreKeyMessageItems<'a> {
     pub(crate) fn kyber_ciphertext(&self) -> Option<&'a [u8]> {
         self.kyber_ciphertext
     }
+
+    pub(crate) fn kyber_longterm_ciphertext(&self) -> Option<&'a [u8]> {
+        self.kyber_longterm_ciphertext
+    }
+
     pub(crate) fn frodokexp_pre_key_id(&self) -> Option<FrodokexpPreKeyId> {
         self.frodokexp_pre_key_id
     }
@@ -155,6 +166,7 @@ impl SessionState {
                 pending_pre_key: None,
                 pending_kyber_pre_key: None,
                 pending_frodokexp_pre_key: None,
+                kyber_longterm: None,
                 remote_registration_id: 0,
                 local_registration_id: 0,
                 alice_base_key: alice_base_key.serialize().into_vec(),
@@ -541,6 +553,14 @@ impl SessionState {
         self.session.pending_frodokexp_pre_key = Some(pending);
     }
 
+    #[allow(clippy::boxed_local)]
+    pub(crate) fn set_kyber_longterm_ciphertext(&mut self, ciphertext: kem::SerializedCiphertext) {
+        let kyber_longterm = session_structure::KyberLongTerm {
+            ciphertext: ciphertext.to_vec(),
+        };
+        self.session.kyber_longterm = Some(kyber_longterm);
+    }
+
     pub(crate) fn set_unacknowledged_kyber_pre_key_id(
         &mut self,
         signed_kyber_pre_key_id: KyberPreKeyId,
@@ -576,6 +596,7 @@ impl SessionState {
                     .map_err(|_| InvalidSessionError("invalid pending PreKey message base key"))?,
                 self.session.pending_kyber_pre_key.as_ref(),
                 self.session.pending_frodokexp_pre_key.as_ref(),
+                self.session.kyber_longterm.as_ref(),
                 SystemTime::UNIX_EPOCH + Duration::from_secs(pending_pre_key.timestamp),
             )))
         } else {
@@ -608,6 +629,13 @@ impl SessionState {
             .pending_kyber_pre_key
             .as_ref()
             .map(|pending| &pending.ciphertext)
+    }
+
+    pub(crate) fn get_kyber_longterm_ciphertext(&self) -> Option<&Vec<u8>> {
+        self.session
+            .kyber_longterm
+            .as_ref()
+            .map(|longterm| &longterm.ciphertext)
     }
 
     pub(crate) fn get_frodokexp_ciphertext(&self) -> Option<&Vec<u8>> {
@@ -896,6 +924,18 @@ impl SessionRecord {
                 )
             })?
             .get_kyber_ciphertext())
+    }
+
+    pub fn get_kyber_longterm_ciphertext(&self) -> Result<Option<&Vec<u8>>, SignalProtocolError> {
+        Ok(self
+            .session_state()
+            .ok_or_else(|| {
+                SignalProtocolError::InvalidState(
+                    "get_kyber_longterm_ciphertext",
+                    "No current session".into(),
+                )
+            })?
+            .get_kyber_longterm_ciphertext())
     }
 
     pub fn get_frodokexp_ciphertext(&self) -> Result<Option<&Vec<u8>>, SignalProtocolError> {

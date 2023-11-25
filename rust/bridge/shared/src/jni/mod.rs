@@ -264,6 +264,9 @@ where
         | SignalJniError::Signal(SignalProtocolError::ApplicationCallbackError(_, _))
         | SignalJniError::Signal(SignalProtocolError::FfiBindingError(_))
         | SignalJniError::Signal(SignalProtocolError::SKEMDecapsulationError)
+        | SignalJniError::Signal(SignalProtocolError::FalconSignatureVerificationError)
+        | SignalJniError::Signal(SignalProtocolError::FalconReadingFromBytesError)
+        | SignalJniError::Signal(SignalProtocolError::InvalidSignatureVersion(_))
         | SignalJniError::DeviceTransfer(DeviceTransferError::InternalError(_))
         | SignalJniError::DeviceTransfer(DeviceTransferError::KeyDecodingFailed) => {
             jni_class_name!(java.lang.RuntimeException)

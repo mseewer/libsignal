@@ -573,6 +573,8 @@ bridge_trait!(SessionStore);
 bridge_trait!(SignedPreKeyStore);
 bridge_trait!(KyberPreKeyStore);
 bridge_trait!(FrodokexpPreKeyStore);
+bridge_trait!(KyberLongTermKeyStore);
+bridge_trait!(FalconSignatureStore);
 bridge_trait!(InputStream);
 
 impl<'storage, 'context: 'storage> ArgTypeInfo<'storage, 'context>

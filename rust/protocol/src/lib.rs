@@ -32,6 +32,7 @@ mod group_cipher;
 mod identity_key;
 pub mod incremental_mac;
 pub mod kem;
+pub mod long_term_keys;
 mod proto;
 mod protocol;
 mod ratchet;
@@ -39,6 +40,7 @@ mod sealed_sender;
 mod sender_keys;
 mod session;
 mod session_cipher;
+pub mod signature;
 pub mod skem;
 mod state;
 mod storage;
@@ -57,6 +59,10 @@ pub use group_cipher::{
     process_sender_key_distribution_message,
 };
 pub use identity_key::{IdentityKey, IdentityKeyPair};
+pub use long_term_keys::{
+    get_public_key_length, get_secret_key_length, KyberLongTermKeyPair, KyberLongTermKeyPublic,
+    KyberLongTermKeySecret, KYBER_LONG_TERM_KEY_TYPE,
+};
 pub use protocol::{
     extract_decryption_error_message_from_serialized_content, CiphertextMessage,
     CiphertextMessageType, DecryptionErrorMessage, FrodokexpPayload, KyberPayload,
@@ -79,14 +85,16 @@ pub use session::{process_prekey, process_prekey_bundle};
 pub use session_cipher::{
     message_decrypt, message_decrypt_prekey, message_decrypt_signal, message_encrypt,
 };
+pub use signature::{FalconKeyPair, FalconPublicKey, FalconSignature, Signature, SignatureVersion};
 pub use state::{
     FrodokexpPreKeyId, FrodokexpPreKeyRecord, GenericSignedPreKey, KyberPreKeyId,
     KyberPreKeyRecord, PreKeyBundle, PreKeyBundleContent, PreKeyId, PreKeyRecord, SessionRecord,
     SignedPreKeyId, SignedPreKeyRecord,
 };
 pub use storage::{
-    Direction, FrodokexpPreKeyStore, IdentityKeyStore, InMemFrodokexpPreKeyStore,
-    InMemIdentityKeyStore, InMemKyberPreKeyStore, InMemPreKeyStore, InMemSenderKeyStore,
-    InMemSessionStore, InMemSignalProtocolStore, InMemSignedPreKeyStore, KyberPreKeyStore,
-    PreKeyStore, ProtocolStore, SenderKeyStore, SessionStore, SignedPreKeyStore,
+    Direction, FalconSignatureStore, FrodokexpPreKeyStore, IdentityKeyStore,
+    InMemFalconSignatureStore, InMemFrodokexpPreKeyStore, InMemIdentityKeyStore,
+    InMemKyberLongTermKeyStore, InMemKyberPreKeyStore, InMemPreKeyStore, InMemSenderKeyStore,
+    InMemSessionStore, InMemSignalProtocolStore, InMemSignedPreKeyStore, KyberLongTermKeyStore,
+    KyberPreKeyStore, PreKeyStore, ProtocolStore, SenderKeyStore, SessionStore, SignedPreKeyStore,
 };

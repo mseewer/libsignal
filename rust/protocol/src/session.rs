@@ -6,9 +6,11 @@
 use std::time::SystemTime;
 
 use crate::{
-    kem, skem, Direction, FrodokexpPreKeyId, FrodokexpPreKeyStore, IdentityKeyStore, KeyPair,
-    KyberPreKeyId, KyberPreKeyStore, PreKeyBundle, PreKeyId, PreKeySignalMessage, PreKeyStore,
-    ProtocolAddress, Result, SessionRecord, SessionStore, SignalProtocolError, SignedPreKeyStore,
+    curve, kem, skem, Direction, FalconSignatureStore, FrodokexpPreKeyId,
+    FrodokexpPreKeyStore, IdentityKeyStore, KeyPair, KyberLongTermKeyStore, KyberPreKeyId,
+    KyberPreKeyStore, PreKeyBundle, PreKeyId, PreKeySignalMessage, PreKeyStore, ProtocolAddress,
+    Result, SessionRecord, SessionStore, SignalProtocolError, Signature, SignatureVersion,
+    SignedPreKeyStore,
 };
 
 use crate::ratchet;
@@ -41,6 +43,7 @@ pub async fn process_prekey(
     signed_prekey_store: &dyn SignedPreKeyStore,
     kyber_prekey_store: &dyn KyberPreKeyStore,
     frodokexp_prekey_store: &dyn FrodokexpPreKeyStore,
+    kyber_longtermkey_store: &dyn KyberLongTermKeyStore,
 ) -> Result<PreKeysUsed> {
     let their_identity_key = message.identity_key();
 
@@ -62,6 +65,7 @@ pub async fn process_prekey(
         frodokexp_prekey_store,
         pre_key_store,
         identity_store,
+        kyber_longtermkey_store,
     )
     .await?;
 
@@ -81,6 +85,7 @@ async fn process_prekey_impl(
     frodokexp_prekey_store: &dyn FrodokexpPreKeyStore,
     pre_key_store: &dyn PreKeyStore,
     identity_store: &dyn IdentityKeyStore,
+    kyber_longtermkey_store: &dyn KyberLongTermKeyStore,
 ) -> Result<PreKeysUsed> {
     if session_record.has_session_state(
         message.message_version() as u32,
@@ -122,6 +127,15 @@ async fn process_prekey_impl(
         our_frodokexp_pre_key_pair = None;
     }
 
+    let our_kyber_long_term_key_pair = if let Ok(kyber_longterm_key_pair) = kyber_longtermkey_store
+        .get_local_kyber_long_term_key_pair()
+        .await
+    {
+        Some(kyber_longterm_key_pair)
+    } else {
+        None
+    };
+
     let our_one_time_pre_key_pair = if let Some(pre_key_id) = message.pre_key_id() {
         log::info!("processing PreKey message from {}", remote_address);
         Some(pre_key_store.get_pre_key(pre_key_id).await?.key_pair()?)
@@ -140,12 +154,14 @@ async fn process_prekey_impl(
         our_signed_pre_key_pair, // ratchet key
         our_kyber_pre_key_pair,
         our_frodokexp_pre_key_pair,
+        our_kyber_long_term_key_pair,
         *message.identity_key(),
         *message.base_key(),
         message.kyber_ciphertext(),
         message.frodokexp_ciphertext(),
         message.frodokexp_tag(),
         message.frodokexp_public_key(),
+        message.kyber_longterm_ciphertext(),
     );
 
     let mut new_session = ratchet::initialize_bob_session(&parameters)?;
@@ -167,6 +183,8 @@ pub async fn process_prekey_bundle<R: Rng + CryptoRng>(
     remote_address: &ProtocolAddress,
     session_store: &mut dyn SessionStore,
     identity_store: &mut dyn IdentityKeyStore,
+    kyber_longtermkey_store: &dyn KyberLongTermKeyStore,
+    falcon_signature_store: &dyn FalconSignatureStore,
     bundle: &PreKeyBundle,
     now: SystemTime,
     mut csprng: &mut R,
@@ -190,25 +208,63 @@ pub async fn process_prekey_bundle<R: Rng + CryptoRng>(
     }
 
     if let Some(kyber_public) = bundle.kyber_pre_key_public()? {
-        if !their_identity_key.public_key().verify_signature(
-            kyber_public.serialize().as_ref(),
-            bundle
-                .kyber_pre_key_signature()?
-                .expect("signature must be present"),
-        )? {
+        let signature_bytes = bundle
+            .kyber_pre_key_signature()?
+            .expect("signature must be present");
+        // structure of signature_bytes:
+        // [Type,LegacySignature, Type, FalconSignature]
+        // let falcon_sig_size = FalconSignature::signature_bytes();
+        let legacy_sig_size = curve::curve25519::SIGNATURE_LENGTH;
+        if signature_bytes.len() < (1 + legacy_sig_size) {
             return Err(SignalProtocolError::SignatureValidationFailed);
+        }
+        let legacy_sig_bytes = &signature_bytes[..legacy_sig_size + 1];
+        let falcon_sig_bytes = &signature_bytes[legacy_sig_size + 1..];
+        let signature_version = SignatureVersion::from_u8(legacy_sig_bytes[0])?;
+        if signature_version != SignatureVersion::Legacy {
+            return Err(SignalProtocolError::InvalidSignatureVersion(
+                signature_version.to_u8(),
+            ));
+        }
+        if !their_identity_key
+            .public_key()
+            .verify_signature(kyber_public.serialize().as_ref(), &legacy_sig_bytes[1..])?
+        {
+            return Err(SignalProtocolError::SignatureValidationFailed);
+        }
+        let do_we_know_falcon = falcon_signature_store
+            .get_falcon_public(remote_address)
+            .await?;
+        if let Some(falcon_public) = do_we_know_falcon {
+            let signature = Signature::from_bytes(falcon_sig_bytes)?;
+            falcon_signature_store
+                .verify_signature_with_public_key(
+                    &falcon_public,
+                    kyber_public.serialize().as_ref(),
+                    signature.get_raw_falcon_signature().unwrap(),
+                )
+                .await?;
         }
     }
 
     if let Some(frodokexp_public) = bundle.frodokexp_pre_key_public()? {
-        if !their_identity_key.public_key().verify_signature(
-            frodokexp_public.serialize().as_ref(),
-            bundle
-                .frodokexp_pre_key_signature()?
-                .expect("signature must be present"),
-        )? {
-            return Err(SignalProtocolError::SignatureValidationFailed);
+        // we know when frodokexp is used -> we also have Falcon as signature
+        let signature_bytes = bundle
+            .frodokexp_pre_key_signature()?
+            .expect("signature must be present");
+        let signature = Signature::from_bytes(signature_bytes)?;
+        if signature.version != SignatureVersion::Falcon {
+            return Err(SignalProtocolError::InvalidSignatureVersion(
+                signature.version.to_u8(),
+            ));
         }
+        falcon_signature_store
+            .verify_signature(
+                remote_address,
+                frodokexp_public.serialize().as_ref(),
+                signature.get_raw_falcon_signature().unwrap(),
+            )
+            .await?;
     }
 
     let mut session_record = session_store
@@ -247,6 +303,13 @@ pub async fn process_prekey_bundle<R: Rng + CryptoRng>(
 
     if let Some(their_public_key) = bundle.frodokexp_pre_key_public()? {
         parameters.set_their_frodokexp_pre_key(their_public_key);
+    }
+
+    if let Some(kyber_longterm_public) = kyber_longtermkey_store
+        .get_kyber_long_term_key(remote_address)
+        .await?
+    {
+        parameters.set_their_kyber_long_term_key(&kyber_longterm_public);
     }
 
     let mut session = ratchet::initialize_alice_session(&parameters, csprng)?;

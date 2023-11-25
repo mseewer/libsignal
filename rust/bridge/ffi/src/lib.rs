@@ -167,6 +167,9 @@ pub unsafe extern "C" fn signal_sealed_session_cipher_decrypt(
     run_ffi_safe(|| {
         let mut kyber_pre_key_store = InMemKyberPreKeyStore::new();
         let mut frodokexp_pre_key_store = InMemFrodokexpPreKeyStore::new();
+        let mut kyber_longterm_key_store = InMemKyberLongTermKeyStore::new(
+            KyberLongTermKeyPair::generate(KYBER_LONG_TERM_KEY_TYPE),
+        );
         let ctext = ctext.as_slice()?;
         let trust_root = native_handle_cast::<PublicKey>(trust_root)?;
         let mut identity_store = identity_store.as_ref().ok_or(SignalFfiError::NullPointer)?;
@@ -192,6 +195,7 @@ pub unsafe extern "C" fn signal_sealed_session_cipher_decrypt(
             &signed_prekey_store,
             &mut kyber_pre_key_store,
             &mut frodokexp_pre_key_store,
+            &mut kyber_longterm_key_store,
         )
         .now_or_never()
         .expect("synchronous")?;

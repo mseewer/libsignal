@@ -150,6 +150,267 @@ impl IdentityKeyStore for &FfiIdentityKeyStoreStruct {
     }
 }
 
+type GetFalconKeyPair =
+    extern "C" fn(store_ctx: *mut c_void, keyp: *mut *mut FalconKeyPair) -> c_int;
+type SaveFalconPublicKey = extern "C" fn(
+    store_ctx: *mut c_void,
+    address: *const ProtocolAddress,
+    falcon_public_key: *const FalconPublicKey,
+) -> c_int;
+type SignWithFalcon = extern "C" fn(
+    store_ctx: *mut c_void,
+    message: *const u8,
+    message_len: usize,
+    signature: *mut *mut FalconSignature,
+) -> c_int;
+type VerifySignature = extern "C" fn(
+    store_ctx: *mut c_void,
+    address: *const ProtocolAddress,
+    message: *const u8,
+    message_len: usize,
+    signature: *const FalconSignature,
+) -> c_int;
+type VerifySignatureWithPublicKey = extern "C" fn(
+    store_ctx: *mut c_void,
+    public_key: *const FalconPublicKey,
+    message: *const u8,
+    message_len: usize,
+    signature: *const FalconSignature,
+) -> c_int;
+type GetFalconPublicKey = extern "C" fn(
+    store_ctx: *mut c_void,
+    address: *const ProtocolAddress,
+    public_keyp: *mut *mut FalconPublicKey,
+) -> c_int;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct FfiFalconSignatureStoreStruct {
+    ctx: *mut c_void,
+    get_falcon_key_pair: GetFalconKeyPair,
+    save_falcon_public: SaveFalconPublicKey,
+    sign_with_falcon: SignWithFalcon,
+    verify_signature: VerifySignature,
+    verify_signature_with_public_key: VerifySignatureWithPublicKey,
+    get_falcon_public: GetFalconPublicKey,
+}
+
+#[async_trait(?Send)]
+impl FalconSignatureStore for &FfiFalconSignatureStoreStruct {
+    async fn get_falcon_key_pair(&self) -> Result<FalconKeyPair, SignalProtocolError> {
+        let mut key = std::ptr::null_mut();
+        let result = (self.get_falcon_key_pair)(self.ctx, &mut key);
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "get_falcon_key_pair",
+                Box::new(error),
+            ));
+        }
+
+        if key.is_null() {
+            return Err(SignalProtocolError::InvalidState(
+                "get_falcon_key_pair",
+                "no local Falcon key".to_string(),
+            ));
+        }
+
+        let key = unsafe { Box::from_raw(key) };
+
+        Ok(*key)
+    }
+
+    async fn save_falcon_public(
+        &mut self,
+        address: &ProtocolAddress,
+        falcon_public_key: &FalconPublicKey,
+    ) -> Result<bool, SignalProtocolError> {
+        let result = (self.save_falcon_public)(self.ctx, address, falcon_public_key);
+
+        match result {
+            0 => Ok(false),
+            1 => Ok(true),
+            r => Err(SignalProtocolError::ApplicationCallbackError(
+                "save_falcon_public",
+                Box::new(CallbackError::check(r).expect("verified non-zero")),
+            )),
+        }
+    }
+
+    async fn sign_with_falcon(&self, msg: &[u8]) -> FalconSignature {
+        let mut signature = std::ptr::null_mut();
+        let _ = (self.sign_with_falcon)(self.ctx, msg.as_ptr(), msg.len(), &mut signature);
+
+        let signature = unsafe { Box::from_raw(signature) };
+
+        *signature
+    }
+
+    async fn verify_signature(
+        &self,
+        address: &ProtocolAddress,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalProtocolError> {
+        let result = (self.verify_signature)(
+            self.ctx,
+            address,
+            msg.as_ptr(),
+            msg.len(),
+            signature as *const FalconSignature,
+        );
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "verify_signature",
+                Box::new(error),
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn verify_signature_with_public_key(
+        &self,
+        public_key: &FalconPublicKey,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalProtocolError> {
+        let result = (self.verify_signature_with_public_key)(
+            self.ctx,
+            public_key,
+            msg.as_ptr(),
+            msg.len(),
+            signature as *const FalconSignature,
+        );
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "verify_signature_with_public_key",
+                Box::new(error),
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn get_falcon_public(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<FalconPublicKey>, SignalProtocolError> {
+        let mut key = std::ptr::null_mut();
+        let result = (self.get_falcon_public)(self.ctx, address, &mut key);
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "get_falcon_public",
+                Box::new(error),
+            ));
+        }
+
+        if key.is_null() {
+            return Ok(None);
+        }
+
+        let pk = unsafe { Box::from_raw(key) };
+
+        Ok(Some(*pk))
+    }
+}
+
+type GetKyberLongTermKeyPair =
+    extern "C" fn(store_ctx: *mut c_void, keyp: *mut *mut KyberLongTermKeyPair) -> c_int;
+type SaveKyberLongTermKey = extern "C" fn(
+    store_ctx: *mut c_void,
+    address: *const ProtocolAddress,
+    kyber_long_term_key_public: *const KyberLongTermKeyPublic,
+) -> c_int;
+type GetKyberLongTermKey = extern "C" fn(
+    store_ctx: *mut c_void,
+    public_keyp: *mut *mut KyberLongTermKeyPublic,
+    address: *const ProtocolAddress,
+) -> c_int;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct FfiKyberLongTermKeyStoreStruct {
+    ctx: *mut c_void,
+    get_local_kyber_long_term_key_pair: GetKyberLongTermKeyPair,
+    save_kyber_longterm: SaveKyberLongTermKey,
+    get_kyber_long_term_key: GetKyberLongTermKey,
+}
+
+#[async_trait(?Send)]
+impl KyberLongTermKeyStore for &FfiKyberLongTermKeyStoreStruct {
+    async fn get_local_kyber_long_term_key_pair(
+        &self,
+    ) -> Result<KyberLongTermKeyPair, SignalProtocolError> {
+        let mut key_pair = std::ptr::null_mut();
+        let result = (self.get_local_kyber_long_term_key_pair)(self.ctx, &mut key_pair);
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "get_local_kyber_long_term_key_pair",
+                Box::new(error),
+            ));
+        }
+
+        if key_pair.is_null() {
+            return Err(SignalProtocolError::InvalidState(
+                "get_local_kyber_long_term_key_pair",
+                "no local Kyber long-term key".to_string(),
+            ));
+        }
+
+        let key = unsafe { Box::from_raw(key_pair) };
+
+        Ok(*key)
+    }
+
+    async fn save_kyber_longterm(
+        &mut self,
+        address: &ProtocolAddress,
+        kyber_long_term_key_public: &KyberLongTermKeyPublic,
+    ) -> Result<bool, SignalProtocolError> {
+        let result = (self.save_kyber_longterm)(
+            self.ctx,
+            address,
+            kyber_long_term_key_public as *const KyberLongTermKeyPublic,
+        );
+
+        match result {
+            0 => Ok(false),
+            1 => Ok(true),
+            r => Err(SignalProtocolError::ApplicationCallbackError(
+                "save_kyber_longterm",
+                Box::new(CallbackError::check(r).expect("verified non-zero")),
+            )),
+        }
+    }
+
+    async fn get_kyber_long_term_key(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>, SignalProtocolError> {
+        let mut key = std::ptr::null_mut();
+        let result = (self.get_kyber_long_term_key)(self.ctx, &mut key, address);
+
+        if let Some(error) = CallbackError::check(result) {
+            return Err(SignalProtocolError::ApplicationCallbackError(
+                "get_kyber_long_term_key",
+                Box::new(error),
+            ));
+        }
+
+        if key.is_null() {
+            return Ok(None);
+        }
+
+        let pk = unsafe { Box::from_raw(key) };
+
+        Ok(Some(*pk))
+    }
+}
+
 type LoadPreKey =
     extern "C" fn(store_ctx: *mut c_void, recordp: *mut *mut PreKeyRecord, id: u32) -> c_int;
 type StorePreKey =

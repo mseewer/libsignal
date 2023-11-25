@@ -18,7 +18,7 @@ use std::time::SystemTime;
 // Deliberately not reusing the constants from `protocol`.
 pub(crate) const PRE_KYBER_MESSAGE_VERSION: u32 = 3;
 pub(crate) const KYBER_AWARE_MESSAGE_VERSION: u32 = 4;
-pub(crate) const KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION: u32 = 5;
+pub(crate) const KYBER_KWAAY_AWARE_MESSAGE_VERSION: u32 = 5;
 
 pub fn test_in_memory_protocol_store() -> Result<InMemSignalProtocolStore, SignalProtocolError> {
     let mut csprng = OsRng;
@@ -59,6 +59,7 @@ pub async fn decrypt(
         &store.signed_pre_key_store,
         &mut store.kyber_pre_key_store,
         &mut store.frodokexp_pre_key_store,
+        &mut store.kyber_long_term_store,
         &mut csprng,
     )
     .await
@@ -143,8 +144,10 @@ pub fn initialize_sessions_v3() -> Result<(SessionRecord, SessionRecord), Signal
         bob_ephemeral_key,
         None,
         None,
+        None,
         *alice_identity.identity_key(),
         alice_base_key.public_key,
+        None,
         None,
         None,
         None,
@@ -193,9 +196,11 @@ pub fn initialize_sessions_v4() -> Result<(SessionRecord, SessionRecord), Signal
         bob_ephemeral_key,
         Some(bob_kyber_key),
         None,
+        None,
         *alice_identity.identity_key(),
         alice_base_key.public_key,
         Some(&kyber_ciphertext),
+        None,
         None,
         None,
         None,
@@ -227,6 +232,7 @@ pub fn initialize_sessions_v5() -> Result<(SessionRecord, SessionRecord), Signal
         skem::KeyType::Frodokexp,
         &frodokexp_public_parameters,
     );
+    let bob_kyber_long_term_key_pair = KyberLongTermKeyPair::generate(KYBER_LONG_TERM_KEY_TYPE);
 
     let alice_params = AliceSignalProtocolParameters::new(
         alice_identity,
@@ -237,13 +243,21 @@ pub fn initialize_sessions_v5() -> Result<(SessionRecord, SessionRecord), Signal
     )
     .with_their_kyber_pre_key(&bob_kyber_key.public_key)
     .with_their_frodokexp_pre_key(&bob_frodokexp_key_pair.public_key_mat)
-    .with_our_frodokexp_key_pair(&alice_frodokexp_key_pair);
+    .with_our_frodokexp_key_pair(&alice_frodokexp_key_pair)
+    .with_their_kyber_long_term_key(&bob_kyber_long_term_key_pair.public_key);
 
     let alice_session = initialize_alice_session_record(&alice_params, &mut csprng)?;
     let kyber_ciphertext = {
         let bytes = alice_session
             .get_kyber_ciphertext()?
             .expect("has kyber ciphertext")
+            .clone();
+        bytes.into_boxed_slice()
+    };
+    let kyber_longterm_ciphertext = {
+        let bytes = alice_session
+            .get_kyber_longterm_ciphertext()?
+            .expect("has kyber longterm ciphertext")
             .clone();
         bytes.into_boxed_slice()
     };
@@ -277,12 +291,14 @@ pub fn initialize_sessions_v5() -> Result<(SessionRecord, SessionRecord), Signal
         bob_ephemeral_key,
         Some(bob_kyber_key),
         Some(bob_frodokexp_key_pair),
+        Some(bob_kyber_long_term_key_pair),
         *alice_identity.identity_key(),
         alice_base_key.public_key,
         Some(&kyber_ciphertext),
         Some(&frodokexp_ciphertext),
         Some(&frodokexp_tag),
         Some(&frodokexp_public_key),
+        Some(&kyber_longterm_ciphertext),
     );
 
     let bob_session = initialize_bob_session_record(&bob_params)?;
@@ -400,7 +416,8 @@ impl TestStoreBuilder {
         }
         let pair = kem::KeyPair::generate(kem::KeyType::Kyber1024);
         let public = pair.public_key.serialize();
-        let signature = self.sign(&public);
+        // we don't know if we can use falcon or not -> just use both
+        let signature = self.sign_with_both(&public);
         let record = KyberPreKeyRecord::new(id.into(), 43, &pair, &signature);
         self.store
             .save_kyber_pre_key(id.into(), &record)
@@ -409,20 +426,26 @@ impl TestStoreBuilder {
             .expect("able toe store kyber pre key");
     }
 
-    pub fn with_frodokexp_pre_key(
-        mut self,
-        id_choice: IdChoice,
-        // public_parameters: &skem::PublicParameters,
-    ) -> Self {
+    pub fn with_kyber_longterm_key(mut self, remote_address: &ProtocolAddress) -> Self {
+        self.add_kyber_longterm_key(remote_address);
+        self
+    }
+
+    pub fn add_kyber_longterm_key(&mut self, remote_address: &ProtocolAddress) {
+        let pair = KyberLongTermKeyPair::generate(KYBER_LONG_TERM_KEY_TYPE); // TODO not to generate here
+        self.store
+            .save_kyber_longterm(remote_address, &pair.public_key)
+            .now_or_never()
+            .expect("sync")
+            .expect("able to store kyber long term key");
+    }
+
+    pub fn with_frodokexp_pre_key(mut self, id_choice: IdChoice) -> Self {
         self.add_frodokexp_pre_key(id_choice);
         self
     }
 
-    pub fn add_frodokexp_pre_key(
-        &mut self,
-        id_choice: IdChoice,
-        // public_parameters: &skem::PublicParameters,
-    ) {
+    pub fn add_frodokexp_pre_key(&mut self, id_choice: IdChoice) {
         let id = self.gen_id(id_choice);
         if let Some(latest_id) = self.store.all_frodokexp_pre_key_ids().last() {
             assert!(
@@ -436,7 +459,8 @@ impl TestStoreBuilder {
         let pair =
             skem::Decapsulator::generate_key_pair(skem::KeyType::Frodokexp, &public_parameters);
         let public = pair.public_key_mat.serialize();
-        let signature = self.sign(&public);
+        // we know we support Falcon signatures
+        let signature = self.sign_pq_secure(&public);
         let record = FrodokexpPreKeyRecord::new(id.into(), 45, &pair, &signature, seed);
         self.store
             .save_frodokexp_pre_key(id.into(), &record)
@@ -540,6 +564,26 @@ impl TestStoreBuilder {
         signing_key
             .calculate_signature(message, &mut self.rng)
             .expect("able to sign with identity key")
+    }
+
+    fn sign_pq_secure(&mut self, message: &[u8]) -> Box<[u8]> {
+        // drop the signature type
+        let raw_falcon_signature = self
+            .store
+            .sign_with_falcon(message)
+            .now_or_never()
+            .expect("able to sign with falcon key");
+        Signature::new_from_falcon_signature(raw_falcon_signature).to_bytes()
+    }
+
+    fn sign_with_both(&mut self, message: &[u8]) -> Box<[u8]> {
+        let raw_signature = self.sign(message);
+        let mut signature = Signature::new_from_legacy_signature(raw_signature).to_bytes().to_vec();
+        let falcon_signature = self.sign_pq_secure(message).to_vec();
+        signature.extend_from_slice(&falcon_signature);
+        // contains [legacy_signature, falcon_signature]
+        // both with their signature type infront
+        signature.into_boxed_slice()
     }
 
     fn next_id(&mut self) -> u32 {

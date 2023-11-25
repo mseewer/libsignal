@@ -163,6 +163,7 @@ impl super::LibSignalProtocolStore for LibSignalProtocolV21 {
             &address(remote),
             &mut self.0.session_store,
             &mut self.0.identity_store,
+            &mut self.0.kyber_long_term_store,
             &pre_key_bundle,
             &mut thread_rng(),
             None,

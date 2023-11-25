@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 
-use crate::{kem, skem, IdentityKey, IdentityKeyPair, KeyPair, PublicKey};
+use crate::{
+    kem, skem, IdentityKey, IdentityKeyPair, KeyPair, KyberLongTermKeyPair, KyberLongTermKeyPublic,
+    PublicKey,
+};
 
 pub struct AliceSignalProtocolParameters {
     our_identity_key_pair: IdentityKeyPair,
@@ -11,6 +14,7 @@ pub struct AliceSignalProtocolParameters {
     our_frodokexp_key_pair: Option<skem::EncapsulatorKeyPair>,
 
     their_identity_key: IdentityKey,
+    their_kyber_long_term_key: Option<KyberLongTermKeyPublic>,
     their_signed_pre_key: PublicKey,
     their_one_time_pre_key: Option<PublicKey>,
     their_ratchet_key: PublicKey,
@@ -31,6 +35,7 @@ impl AliceSignalProtocolParameters {
             our_base_key_pair,
             our_frodokexp_key_pair: None,
             their_identity_key,
+            their_kyber_long_term_key: None,
             their_signed_pre_key,
             their_one_time_pre_key: None,
             their_ratchet_key,
@@ -81,6 +86,15 @@ impl AliceSignalProtocolParameters {
         self
     }
 
+    pub fn set_their_kyber_long_term_key(&mut self, kyber_public: &KyberLongTermKeyPublic) {
+        self.their_kyber_long_term_key = Some(kyber_public.clone());
+    }
+
+    pub fn with_their_kyber_long_term_key(mut self, kyber_public: &KyberLongTermKeyPublic) -> Self {
+        self.set_their_kyber_long_term_key(kyber_public);
+        self
+    }
+
     #[inline]
     pub fn our_identity_key_pair(&self) -> &IdentityKeyPair {
         &self.our_identity_key_pair
@@ -94,6 +108,11 @@ impl AliceSignalProtocolParameters {
     #[inline]
     pub fn their_identity_key(&self) -> &IdentityKey {
         &self.their_identity_key
+    }
+
+    #[inline]
+    pub fn their_kyber_long_term_key(&self) -> Option<&KyberLongTermKeyPublic> {
+        self.their_kyber_long_term_key.as_ref()
     }
 
     #[inline]
@@ -135,6 +154,7 @@ pub struct BobSignalProtocolParameters<'a> {
     // Optional, we are Kyber-aware, but there may be no kyber prekey id communicated from Alice
     our_kyber_pre_key_pair: Option<kem::KeyPair>,
     our_frodokexp_pre_key_pair: Option<skem::DecapsulatorKeyPair>,
+    our_kyber_long_term_key_pair: Option<KyberLongTermKeyPair>,
 
     their_identity_key: IdentityKey,
     their_base_key: PublicKey,
@@ -142,6 +162,7 @@ pub struct BobSignalProtocolParameters<'a> {
     their_frodokexp_ciphertext: Option<&'a skem::SerializedCiphertext>,
     their_frodokexp_tag: Option<&'a skem::SerializedTag>,
     their_frodokexp_public_key: Option<&'a skem::PublicKeyMaterial>,
+    their_kyber_longterm_ciphertext: Option<&'a kem::SerializedCiphertext>,
 }
 
 impl<'a> BobSignalProtocolParameters<'a> {
@@ -152,12 +173,14 @@ impl<'a> BobSignalProtocolParameters<'a> {
         our_ratchet_key_pair: KeyPair,
         our_kyber_pre_key_pair: Option<kem::KeyPair>,
         our_frodokexp_pre_key_pair: Option<skem::DecapsulatorKeyPair>,
+        our_kyber_long_term_key_pair: Option<KyberLongTermKeyPair>,
         their_identity_key: IdentityKey,
         their_base_key: PublicKey,
         their_kyber_ciphertext: Option<&'a kem::SerializedCiphertext>,
         their_frodokexp_ciphertext: Option<&'a skem::SerializedCiphertext>,
         their_frodokexp_tag: Option<&'a skem::SerializedTag>,
         their_frodokexp_public_key: Option<&'a skem::PublicKeyMaterial>,
+        their_kyber_longterm_ciphertext: Option<&'a kem::SerializedCiphertext>,
     ) -> Self {
         Self {
             our_identity_key_pair,
@@ -166,18 +189,25 @@ impl<'a> BobSignalProtocolParameters<'a> {
             our_ratchet_key_pair,
             our_kyber_pre_key_pair,
             our_frodokexp_pre_key_pair,
+            our_kyber_long_term_key_pair,
             their_identity_key,
             their_base_key,
             their_kyber_ciphertext,
             their_frodokexp_ciphertext,
             their_frodokexp_tag,
             their_frodokexp_public_key,
+            their_kyber_longterm_ciphertext,
         }
     }
 
     #[inline]
     pub fn our_identity_key_pair(&self) -> &IdentityKeyPair {
         &self.our_identity_key_pair
+    }
+
+    #[inline]
+    pub fn our_kyber_long_term_key_pair(&self) -> Option<&KyberLongTermKeyPair> {
+        self.our_kyber_long_term_key_pair.as_ref()
     }
 
     #[inline]
@@ -223,6 +253,11 @@ impl<'a> BobSignalProtocolParameters<'a> {
     #[inline]
     pub fn their_frodokexp_ciphertext(&self) -> Option<&skem::SerializedCiphertext> {
         self.their_frodokexp_ciphertext
+    }
+
+    #[inline]
+    pub fn their_kyber_longterm_ciphertext(&self) -> Option<&kem::SerializedCiphertext> {
+        self.their_kyber_longterm_ciphertext
     }
 
     #[inline]

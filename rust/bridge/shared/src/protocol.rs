@@ -21,16 +21,23 @@ use crate::*;
 #[allow(dead_code)]
 const KYBER_KEY_TYPE: kem::KeyType = kem::KeyType::Kyber1024;
 const FRODOKEXP_KEY_TYPE: skem::KeyType = skem::KeyType::Frodokexp;
+const KYBER_LONG_TERM_KEY_TYPE: kem::KeyType = long_term_keys::KYBER_LONG_TERM_KEY_TYPE;
 
 pub type KyberKeyPair = kem::KeyPair;
 pub type KyberPublicKey = kem::PublicKey;
 pub type KyberSecretKey = kem::SecretKey;
 
-pub type FrodokexpEncapsulatorKeyPair = skem::EncapsulatorKeyPair; // needed?
+pub type FrodokexpEncapsulatorKeyPair = skem::EncapsulatorKeyPair;
 pub type FrodokexpDecapsulatorKeyPair = skem::DecapsulatorKeyPair;
 pub type FrodokexpPublicKey = skem::PublicKeyMaterial;
 pub type FrodokexpSecretKey = skem::SecretKeyMaterial;
 pub type FrodokexpPublicParameters = skem::PublicParameters;
+
+pub type FalconPublicKey = signature::FalconPublicKey;
+pub type FalconSignature = signature::FalconSignature;
+
+pub type KyberLongTermKeyPublic = long_term_keys::KyberLongTermKeyPublic;
+pub type KyberLongTermKeySecret = long_term_keys::KyberLongTermKeySecret;
 
 bridge_handle!(CiphertextMessage, clone = false, jni = false);
 bridge_handle!(DecryptionErrorMessage);
@@ -57,11 +64,13 @@ bridge_handle!(SealedSenderDecryptionResult, ffi = false, jni = false);
 bridge_handle!(KyberKeyPair);
 bridge_handle!(KyberPublicKey);
 bridge_handle!(KyberSecretKey);
-bridge_handle!(FrodokexpEncapsulatorKeyPair); // needed?
+bridge_handle!(FrodokexpEncapsulatorKeyPair);
 bridge_handle!(FrodokexpDecapsulatorKeyPair);
 bridge_handle!(FrodokexpPublicKey);
 bridge_handle!(FrodokexpSecretKey);
 bridge_handle!(FrodokexpPublicParameters);
+bridge_handle!(FalconPublicKey);
+bridge_handle!(FalconSignature);
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Timestamp(u64);
@@ -272,6 +281,21 @@ fn KyberKeyPair_GetPublicKey(key_pair: &KyberKeyPair) -> KyberPublicKey {
 
 #[bridge_fn]
 fn KyberKeyPair_GetSecretKey(key_pair: &KyberKeyPair) -> KyberSecretKey {
+    key_pair.secret_key.clone()
+}
+
+#[bridge_fn]
+fn KyberLongTermKeyPair_Generate() -> KyberLongTermKeyPair {
+    KyberLongTermKeyPair::generate(KYBER_LONG_TERM_KEY_TYPE)
+}
+
+#[bridge_fn]
+fn KyberLongTermKeyPair_GetPublicKey(key_pair: &KyberLongTermKeyPair) -> KyberLongTermKeyPublic {
+    key_pair.public_key.clone()
+}
+
+#[bridge_fn]
+fn KyberLongTermKeyPair_GetSecretKey(key_pair: &KyberLongTermKeyPair) -> KyberLongTermKeySecret {
     key_pair.secret_key.clone()
 }
 
@@ -507,6 +531,7 @@ fn PreKeySignalMessage_New(
         pre_key_id.map(|id| id.into()),
         signed_pre_key_id.into(),
         None, // TODO: accept kyber payload
+        None,
         None,
         *base_key,
         IdentityKey::new(*identity_key),
@@ -1221,8 +1246,10 @@ fn SessionRecord_InitializeBobSession(
         our_ratchet_key_pair,
         None,
         None,
+        None,
         their_identity_key,
         *their_base_key,
+        None,
         None,
         None,
         None,
@@ -1240,6 +1267,8 @@ async fn SessionBuilder_ProcessPreKeyBundle(
     protocol_address: &ProtocolAddress,
     session_store: &mut dyn SessionStore,
     identity_key_store: &mut dyn IdentityKeyStore,
+    kyber_longterm_key_store: &mut dyn KyberLongTermKeyStore,
+    falcon_signature_store: &mut dyn FalconSignatureStore,
     now: Timestamp,
 ) -> Result<()> {
     let mut csprng = rand::rngs::OsRng;
@@ -1247,6 +1276,8 @@ async fn SessionBuilder_ProcessPreKeyBundle(
         protocol_address,
         session_store,
         identity_key_store,
+        kyber_longterm_key_store,
+        falcon_signature_store,
         bundle,
         now.as_millis_from_unix_epoch(),
         &mut csprng,
@@ -1300,6 +1331,7 @@ async fn SessionCipher_DecryptPreKeySignalMessage(
     signed_prekey_store: &mut dyn SignedPreKeyStore,
     kyber_prekey_store: &mut dyn KyberPreKeyStore,
     frodokexp_prekey_store: &mut dyn FrodokexpPreKeyStore,
+    kyber_longtermkey_store: &mut dyn KyberLongTermKeyStore,
 ) -> Result<Vec<u8>> {
     let mut csprng = rand::rngs::OsRng;
     message_decrypt_prekey(
@@ -1311,6 +1343,7 @@ async fn SessionCipher_DecryptPreKeySignalMessage(
         signed_prekey_store,
         kyber_prekey_store,
         frodokexp_prekey_store,
+        kyber_longtermkey_store,
         &mut csprng,
     )
     .await
@@ -1403,6 +1436,7 @@ async fn SealedSender_DecryptMessage(
     signed_prekey_store: &mut dyn SignedPreKeyStore,
     kyber_prekey_store: &mut dyn KyberPreKeyStore,
     frodokexp_prekey_store: &mut dyn FrodokexpPreKeyStore,
+    kyber_longtermkey_store: &mut dyn KyberLongTermKeyStore,
 ) -> Result<SealedSenderDecryptionResult> {
     sealed_sender_decrypt(
         message,
@@ -1417,6 +1451,7 @@ async fn SealedSender_DecryptMessage(
         signed_prekey_store,
         kyber_prekey_store,
         frodokexp_prekey_store,
+        kyber_longtermkey_store,
     )
     .await
 }

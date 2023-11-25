@@ -7,11 +7,14 @@
 //!
 //! These implementations are purely in-memory, and therefore most likely useful for testing.
 
+use crate::signature::FalconPublicKey;
 use crate::storage::traits;
 use crate::{
-    FrodokexpPreKeyId, FrodokexpPreKeyRecord, IdentityKey, IdentityKeyPair, KyberPreKeyId,
+    FalconKeyPair, FalconSignature, FrodokexpPreKeyId, FrodokexpPreKeyRecord, IdentityKey,
+    IdentityKeyPair, KyberLongTermKeyPair, KyberLongTermKeyPublic, KyberPreKeyId,
     KyberPreKeyRecord, PreKeyId, PreKeyRecord, ProtocolAddress, Result, SenderKeyRecord,
     SessionRecord, SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord,
+    KYBER_LONG_TERM_KEY_TYPE,
 };
 
 use async_trait::async_trait;
@@ -91,6 +94,149 @@ impl traits::IdentityKeyStore for InMemIdentityKeyStore {
     }
 
     async fn get_identity(&self, address: &ProtocolAddress) -> Result<Option<IdentityKey>> {
+        match self.known_keys.get(address) {
+            None => Ok(None),
+            Some(k) => Ok(Some(k.to_owned())),
+        }
+    }
+}
+
+/// Reference implementation of [traits::FalconSignatureStore].
+#[derive(Clone)]
+pub struct InMemFalconSignatureStore {
+    key_pair: FalconKeyPair,
+    known_keys: HashMap<ProtocolAddress, FalconPublicKey>,
+}
+
+impl InMemFalconSignatureStore {
+    /// Create a new instance.
+    pub fn new() -> Self {
+        Self {
+            key_pair: FalconKeyPair::generate_falcon_key_pair(),
+            known_keys: HashMap::new(),
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl traits::FalconSignatureStore for InMemFalconSignatureStore {
+    async fn get_falcon_key_pair(&self) -> Result<FalconKeyPair> {
+        Ok(self.key_pair.clone())
+    }
+
+    async fn save_falcon_public(
+        &mut self,
+        address: &ProtocolAddress,
+        falcon_public_key: &FalconPublicKey,
+    ) -> Result<bool> {
+        match self.known_keys.get(address) {
+            None => {
+                self.known_keys
+                    .insert(address.clone(), falcon_public_key.clone());
+                Ok(false) // new key
+            }
+            Some(k) if k == falcon_public_key => {
+                Ok(false) // same key
+            }
+            Some(_k) => {
+                self.known_keys
+                    .insert(address.clone(), falcon_public_key.clone());
+                Ok(true) // overwrite
+            }
+        }
+    }
+
+    async fn sign_with_falcon(&self, msg: &[u8]) -> FalconSignature {
+        FalconSignature::sign_with_falcon(&self.key_pair.secret_key, msg)
+    }
+
+    async fn verify_signature(
+        &self,
+        address: &ProtocolAddress,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<()> {
+        let public_key = match self.known_keys.get(address) {
+            None => return Err(SignalProtocolError::FalconSignatureVerificationError),
+            Some(k) => k,
+        };
+        FalconSignature::verify_signature(public_key, msg, signature)
+    }
+
+    async fn verify_signature_with_public_key(
+        &self,
+        public_key: &FalconPublicKey,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<()> {
+        FalconSignature::verify_signature(public_key, msg, signature)
+    }
+
+    async fn get_falcon_public(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<FalconPublicKey>> {
+        match self.known_keys.get(address) {
+            None => Ok(None),
+            Some(k) => Ok(Some(k.to_owned())),
+        }
+    }
+}
+
+#[derive(Clone)]
+/// Reference implementation of [traits::KyberLongTermKeyStore].
+pub struct InMemKyberLongTermKeyStore {
+    key_pair: KyberLongTermKeyPair,
+    known_keys: HashMap<ProtocolAddress, KyberLongTermKeyPublic>,
+}
+
+impl InMemKyberLongTermKeyStore {
+    /// Create an empty Frodokexp pre-key store.
+    pub fn new(key_pair: KyberLongTermKeyPair) -> Self {
+        Self {
+            key_pair,
+            known_keys: HashMap::new(),
+        }
+    }
+
+    /// Clear the mapping of known keys.
+    pub fn reset(&mut self) {
+        self.known_keys.clear();
+    }
+}
+
+#[async_trait(?Send)]
+impl traits::KyberLongTermKeyStore for InMemKyberLongTermKeyStore {
+    async fn get_local_kyber_long_term_key_pair(&self) -> Result<KyberLongTermKeyPair> {
+        Ok(self.key_pair.clone())
+    }
+
+    // similar to identityKeyStore
+    async fn save_kyber_longterm(
+        &mut self,
+        address: &ProtocolAddress,
+        kyber_long_term_key_public: &KyberLongTermKeyPublic,
+    ) -> Result<bool> {
+        match self.known_keys.get(address) {
+            None => {
+                self.known_keys
+                    .insert(address.clone(), kyber_long_term_key_public.clone());
+                Ok(false) // new key
+            }
+            Some(k) if k == kyber_long_term_key_public => {
+                Ok(false) // same key
+            }
+            Some(_k) => {
+                self.known_keys
+                    .insert(address.clone(), kyber_long_term_key_public.clone());
+                Ok(true) // overwrite
+            }
+        }
+    }
+    async fn get_kyber_long_term_key(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>> {
         match self.known_keys.get(address) {
             None => Ok(None),
             Some(k) => Ok(Some(k.to_owned())),
@@ -422,6 +568,8 @@ pub struct InMemSignalProtocolStore {
     pub frodokexp_pre_key_store: InMemFrodokexpPreKeyStore,
     pub identity_store: InMemIdentityKeyStore,
     pub sender_key_store: InMemSenderKeyStore,
+    pub kyber_long_term_store: InMemKyberLongTermKeyStore,
+    pub falcon_signature_store: InMemFalconSignatureStore,
 }
 
 impl InMemSignalProtocolStore {
@@ -436,6 +584,10 @@ impl InMemSignalProtocolStore {
             frodokexp_pre_key_store: InMemFrodokexpPreKeyStore::new(),
             identity_store: InMemIdentityKeyStore::new(key_pair, registration_id),
             sender_key_store: InMemSenderKeyStore::new(),
+            kyber_long_term_store: InMemKyberLongTermKeyStore::new(KyberLongTermKeyPair::generate(
+                KYBER_LONG_TERM_KEY_TYPE,
+            )),
+            falcon_signature_store: InMemFalconSignatureStore::new(),
         })
     }
 
@@ -491,6 +643,84 @@ impl traits::IdentityKeyStore for InMemSignalProtocolStore {
 
     async fn get_identity(&self, address: &ProtocolAddress) -> Result<Option<IdentityKey>> {
         self.identity_store.get_identity(address).await
+    }
+}
+
+#[async_trait(?Send)]
+impl traits::FalconSignatureStore for InMemSignalProtocolStore {
+    async fn get_falcon_key_pair(&self) -> Result<FalconKeyPair> {
+        self.falcon_signature_store.get_falcon_key_pair().await
+    }
+
+    async fn save_falcon_public(
+        &mut self,
+        address: &ProtocolAddress,
+        falcon_public_key: &FalconPublicKey,
+    ) -> Result<bool> {
+        self.falcon_signature_store
+            .save_falcon_public(address, falcon_public_key)
+            .await
+    }
+
+    async fn sign_with_falcon(&self, msg: &[u8]) -> FalconSignature {
+        self.falcon_signature_store.sign_with_falcon(msg).await
+    }
+
+    async fn verify_signature(
+        &self,
+        address: &ProtocolAddress,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<()> {
+        self.falcon_signature_store
+            .verify_signature(address, msg, signature)
+            .await
+    }
+
+    async fn verify_signature_with_public_key(
+        &self,
+        public_key: &FalconPublicKey,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<()> {
+        self.falcon_signature_store
+            .verify_signature_with_public_key(public_key, msg, signature)
+            .await
+    }
+
+    async fn get_falcon_public(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<FalconPublicKey>> {
+        self.falcon_signature_store.get_falcon_public(address).await
+    }
+}
+
+#[async_trait(?Send)]
+impl traits::KyberLongTermKeyStore for InMemSignalProtocolStore {
+    async fn get_local_kyber_long_term_key_pair(&self) -> Result<KyberLongTermKeyPair> {
+        self.kyber_long_term_store
+            .get_local_kyber_long_term_key_pair()
+            .await
+    }
+
+    async fn save_kyber_longterm(
+        &mut self,
+        address: &ProtocolAddress,
+        kyber_long_term_key_public: &KyberLongTermKeyPublic,
+    ) -> Result<bool> {
+        self.kyber_long_term_store
+            .save_kyber_longterm(address, kyber_long_term_key_public)
+            .await
+    }
+
+    async fn get_kyber_long_term_key(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>> {
+        self.kyber_long_term_store
+            .get_kyber_long_term_key(address)
+            .await
     }
 }
 

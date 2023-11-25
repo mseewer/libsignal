@@ -250,6 +250,18 @@ impl KyberPayload {
 }
 
 #[derive(Debug, Clone)]
+pub struct KyberLongtermPayload {
+    // Do we want to store more? -> reference to long term key?
+    ciphertext: kem::SerializedCiphertext,
+}
+
+impl KyberLongtermPayload {
+    pub fn new(ciphertext: kem::SerializedCiphertext) -> Self {
+        Self { ciphertext }
+    }
+}
+
+#[derive(Debug, Clone)]
 // Payload send by the sender to the receiver
 // just need the encaps output: ciphertext and tag
 // receiver will need
@@ -285,6 +297,7 @@ pub struct PreKeySignalMessage {
     signed_pre_key_id: SignedPreKeyId,
     kyber_payload: Option<KyberPayload>,
     frodokexp_payload: Option<FrodokexpPayload>,
+    kyber_longterm_payload: Option<KyberLongtermPayload>,
     base_key: PublicKey,
     identity_key: IdentityKey,
     message: SignalMessage,
@@ -300,6 +313,7 @@ impl PreKeySignalMessage {
         signed_pre_key_id: SignedPreKeyId,
         kyber_payload: Option<KyberPayload>,
         frodokexp_payload: Option<FrodokexpPayload>,
+        kyber_longterm_payload: Option<KyberLongtermPayload>,
         base_key: PublicKey,
         identity_key: IdentityKey,
         message: SignalMessage,
@@ -315,15 +329,18 @@ impl PreKeySignalMessage {
             frodokexp_pre_key_id: frodokexp_payload
                 .as_ref()
                 .map(|frodokexp| frodokexp.their_pre_key_id.into()),
+            frodokexp_public_key: frodokexp_payload
+                .as_ref()
+                .map(|frodokexp| frodokexp.public_key.serialize().to_vec()),
             frodokexp_ciphertext: frodokexp_payload
                 .as_ref()
                 .map(|frodokexp| frodokexp.ciphertext.to_vec()),
             frodokexp_tag: frodokexp_payload
                 .as_ref()
                 .map(|frodokexp| frodokexp.tag.to_vec()),
-            frodokexp_public_key: frodokexp_payload
+            kyber_longterm_ciphertext: kyber_longterm_payload
                 .as_ref()
-                .map(|frodokexp| frodokexp.public_key.serialize().to_vec()),
+                .map(|kyber| kyber.ciphertext.to_vec()),
             base_key: Some(base_key.serialize().into_vec()),
             identity_key: Some(identity_key.serialize().into_vec()),
             message: Some(Vec::from(message.as_ref())),
@@ -340,6 +357,7 @@ impl PreKeySignalMessage {
             signed_pre_key_id,
             kyber_payload,
             frodokexp_payload,
+            kyber_longterm_payload,
             base_key,
             identity_key,
             message,
@@ -403,6 +421,13 @@ impl PreKeySignalMessage {
         self.frodokexp_payload
             .as_ref()
             .map(|frodokexp| frodokexp.their_pre_key_id)
+    }
+
+    #[inline]
+    pub fn kyber_longterm_ciphertext(&self) -> Option<&kem::SerializedCiphertext> {
+        self.kyber_longterm_payload
+            .as_ref()
+            .map(|kyber| &kyber.ciphertext)
     }
 
     #[inline]
@@ -524,6 +549,17 @@ impl TryFrom<&[u8]> for PreKeySignalMessage {
             }
         };
 
+        let kyber_longterm_payload = match proto_structure.kyber_longterm_ciphertext {
+            Some(ct) => Some(KyberLongtermPayload::new(ct.into_boxed_slice())),
+            None if message_version <= CIPHERTEXT_MESSAGE_PRE_FRODOKEXP_VERSION => None,
+            None => {
+                return Err(SignalProtocolError::InvalidMessage(
+                    CiphertextMessageType::PreKey,
+                    "Kyber longterm ciphertext must be present for this session version",
+                ));
+            }
+        };
+
         Ok(PreKeySignalMessage {
             message_version,
             registration_id: proto_structure.registration_id.unwrap_or(0),
@@ -531,6 +567,7 @@ impl TryFrom<&[u8]> for PreKeySignalMessage {
             signed_pre_key_id: signed_pre_key_id.into(),
             kyber_payload,
             frodokexp_payload,
+            kyber_longterm_payload,
             base_key,
             identity_key: IdentityKey::try_from(identity_key.as_ref())?,
             message: SignalMessage::try_from(message.as_ref())?,
@@ -1068,6 +1105,7 @@ mod tests {
             97.into(),
             None, // TODO: add kyber prekeys
             None, // TODO: add frodokexp prekeys
+            None,
             base_key_pair.public_key,
             identity_key_pair.public_key.into(),
             message,
@@ -1180,6 +1218,7 @@ mod tests {
             97.into(),
             None, // TODO: add kyber prekeys
             None, // TODO: add frodokexp prekeys
+            None,
             base_key_pair.public_key,
             identity_key_pair.public_key.into(),
             message,

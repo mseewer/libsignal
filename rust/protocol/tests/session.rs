@@ -22,6 +22,27 @@ fn init_logger() {
         .try_init();
 }
 
+async fn update_kyber_longterm_and_falcon_signature_store(
+    store_to_update: &mut InMemSignalProtocolStore,
+    other_store: &InMemSignalProtocolStore,
+    other_address: &ProtocolAddress,
+) -> TestResult {
+    let other_kyber_longterm = other_store
+        .get_local_kyber_long_term_key_pair()
+        .await?
+        .public_key;
+    let _ = store_to_update
+        .kyber_long_term_store
+        .save_kyber_longterm(other_address, &other_kyber_longterm)
+        .await?;
+    let other_falcon_public = other_store.get_falcon_key_pair().await?.public_key;
+    let _ = store_to_update
+        .falcon_signature_store
+        .save_falcon_public(other_address, &other_falcon_public)
+        .await?;
+    Ok(())
+}
+
 #[test]
 fn test_basic_prekey() -> TestResult {
     run(
@@ -48,7 +69,7 @@ fn test_basic_prekey() -> TestResult {
             builder.add_kyber_pre_key(IdChoice::Next);
             builder.add_frodokexp_pre_key(IdChoice::Next);
         },
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run<F>(bob_add_keys: F, expected_session_version: u32) -> TestResult
@@ -56,6 +77,7 @@ fn test_basic_prekey() -> TestResult {
         F: Fn(&mut TestStoreBuilder),
     {
         async {
+            println!("expected_session_version: {}", expected_session_version);
             let mut csprng = OsRng;
 
             let bob_device_id: DeviceId = 1.into();
@@ -69,12 +91,29 @@ fn test_basic_prekey() -> TestResult {
             let mut alice_store_builder = TestStoreBuilder::new();
             let alice_store = &mut alice_store_builder.store;
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    alice_store,
+                    &mut bob_store_builder.store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    &mut bob_store_builder.store,
+                    alice_store,
+                    &alice_address,
+                )
+                .await?;
+            }
+
             let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(bob_device_id);
 
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -159,6 +198,8 @@ fn test_basic_prekey() -> TestResult {
                 &bob_address,
                 &mut alter_alice_store.session_store,
                 &mut alter_alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -216,6 +257,8 @@ fn test_basic_prekey() -> TestResult {
                 &bob_address,
                 &mut alter_alice_store.session_store,
                 &mut alter_alice_store.identity_store,
+                &mut alter_alice_store.kyber_long_term_store,
+                &mut alter_alice_store.falcon_signature_store,
                 &bad_bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -267,12 +310,27 @@ fn test_chain_jump_over_limit() -> TestResult {
 
             let alice_store = &mut alice_store_builder.store;
 
+            update_kyber_longterm_and_falcon_signature_store(
+                alice_store,
+                &mut bob_store_builder.store,
+                &bob_address,
+            )
+            .await?;
+            update_kyber_longterm_and_falcon_signature_store(
+                &mut bob_store_builder.store,
+                alice_store,
+                &alice_address,
+            )
+            .await?;
+
             let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -341,12 +399,27 @@ fn test_chain_jump_over_limit_with_self() -> TestResult {
 
             let a1_store = &mut a1_store_builder.store;
 
+            update_kyber_longterm_and_falcon_signature_store(
+                a1_store,
+                &mut a2_store_builder.store,
+                &a2_address,
+            )
+            .await?;
+            update_kyber_longterm_and_falcon_signature_store(
+                &mut a2_store_builder.store,
+                a1_store,
+                &a1_address,
+            )
+            .await?;
+
             let a2_pre_key_bundle = a2_store_builder.make_bundle_with_latest_keys(device_id_2);
 
             process_prekey_bundle(
                 &a2_address,
                 &mut a1_store.session_store,
                 &mut a1_store.identity_store,
+                &mut a1_store.kyber_long_term_store,
+                &mut a1_store.falcon_signature_store,
                 &a2_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -390,6 +463,13 @@ fn test_bad_signed_pre_key_signature() -> TestResult {
             .with_pre_key(31337.into())
             .with_signed_pre_key(22.into());
 
+        update_kyber_longterm_and_falcon_signature_store(
+            &mut alice_store,
+            &bob_store_builder.store,
+            &bob_address,
+        )
+        .await?;
+
         let good_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
         for bit in 0..8 * good_bundle
@@ -413,6 +493,8 @@ fn test_bad_signed_pre_key_signature() -> TestResult {
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bad_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -426,6 +508,8 @@ fn test_bad_signed_pre_key_signature() -> TestResult {
             &bob_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &good_bundle,
             SystemTime::now(),
             &mut csprng,
@@ -470,7 +554,7 @@ fn test_repeat_bundle_message() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -485,12 +569,28 @@ fn test_repeat_bundle_message() -> TestResult {
 
             let alice_store = &mut alice_store_builder.store;
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    alice_store,
+                    &bob_store_builder.store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    &mut bob_store_builder.store,
+                    alice_store,
+                    &alice_address,
+                )
+                .await?;
+            }
             let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -615,7 +715,7 @@ fn test_bad_message_bundle() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -635,10 +735,27 @@ fn test_bad_message_bundle() -> TestResult {
             let alice_store = &mut alice_store_builder.store;
             let bob_store = &mut bob_store_builder.store;
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    alice_store,
+                    bob_store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    bob_store,
+                    alice_store,
+                    &alice_address,
+                )
+                .await?;
+            }
+
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -727,7 +844,7 @@ fn test_optional_one_time_prekey() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -742,12 +859,29 @@ fn test_optional_one_time_prekey() -> TestResult {
 
             let alice_store = &mut alice_store_builder.store;
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    alice_store,
+                    &bob_store_builder.store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    &mut bob_store_builder.store,
+                    alice_store,
+                    &alice_address,
+                )
+                .await?;
+            }
+
             let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -915,7 +1049,7 @@ fn test_basic_simultaneous_initiate() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -935,10 +1069,27 @@ fn test_basic_simultaneous_initiate() -> TestResult {
             let alice_store = &mut alice_store_builder.store;
             let bob_store = &mut bob_store_builder.store;
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    alice_store,
+                    bob_store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    bob_store,
+                    alice_store,
+                    &alice_address,
+                )
+                .await?;
+            }
+
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -949,6 +1100,8 @@ fn test_basic_simultaneous_initiate() -> TestResult {
                 &alice_address,
                 &mut bob_store.session_store,
                 &mut bob_store.identity_store,
+                &mut bob_store.kyber_long_term_store,
+                &mut bob_store.falcon_signature_store,
                 &alice_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -1105,7 +1258,7 @@ fn test_simultaneous_initiate_with_lossage() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     let mut alice_store_builder = TestStoreBuilder::new()
@@ -1121,7 +1274,7 @@ fn test_simultaneous_initiate_with_lossage() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -1141,10 +1294,27 @@ fn test_simultaneous_initiate_with_lossage() -> TestResult {
             let alice_store = &mut alice_store_builder.store;
             let bob_store = &mut bob_store_builder.store;
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    alice_store,
+                    bob_store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    bob_store,
+                    alice_store,
+                    &alice_address,
+                )
+                .await?;
+            }
+
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -1155,6 +1325,8 @@ fn test_simultaneous_initiate_with_lossage() -> TestResult {
                 &alice_address,
                 &mut bob_store.session_store,
                 &mut bob_store.identity_store,
+                &mut bob_store.kyber_long_term_store,
+                &mut bob_store.falcon_signature_store,
                 &alice_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -1291,7 +1463,7 @@ fn test_simultaneous_initiate_lost_message() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     let mut alice_store_builder = TestStoreBuilder::new()
@@ -1307,7 +1479,7 @@ fn test_simultaneous_initiate_lost_message() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -1327,10 +1499,26 @@ fn test_simultaneous_initiate_lost_message() -> TestResult {
             let alice_store = &mut alice_store_builder.store;
             let bob_store = &mut bob_store_builder.store;
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    alice_store,
+                    bob_store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    bob_store,
+                    alice_store,
+                    &alice_address,
+                )
+                .await?;
+            }
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store.session_store,
                 &mut alice_store.identity_store,
+                &mut alice_store.kyber_long_term_store,
+                &mut alice_store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -1341,6 +1529,8 @@ fn test_simultaneous_initiate_lost_message() -> TestResult {
                 &alice_address,
                 &mut bob_store.session_store,
                 &mut bob_store.identity_store,
+                &mut bob_store.kyber_long_term_store,
+                &mut bob_store.falcon_signature_store,
                 &alice_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -1485,7 +1675,7 @@ fn test_simultaneous_initiate_repeated_messages() -> TestResult {
     run(
         &mut alice_store_builder,
         &mut bob_store_builder,
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run(
@@ -1499,6 +1689,21 @@ fn test_simultaneous_initiate_repeated_messages() -> TestResult {
             let alice_address = ProtocolAddress::new("+14151111111".to_owned(), 1.into());
             let bob_address = ProtocolAddress::new("+14151111112".to_owned(), 1.into());
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    &mut alice_store_builder.store,
+                    &bob_store_builder.store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    &mut bob_store_builder.store,
+                    &alice_store_builder.store,
+                    &alice_address,
+                )
+                .await?;
+            }
+
             for _ in 0..15 {
                 let alice_pre_key_bundle =
                     alice_store_builder.make_bundle_with_latest_keys(1.into());
@@ -1508,6 +1713,8 @@ fn test_simultaneous_initiate_repeated_messages() -> TestResult {
                     &bob_address,
                     &mut alice_store_builder.store.session_store,
                     &mut alice_store_builder.store.identity_store,
+                    &mut alice_store_builder.store.kyber_long_term_store,
+                    &mut alice_store_builder.store.falcon_signature_store,
                     &bob_pre_key_bundle,
                     SystemTime::now(),
                     &mut csprng,
@@ -1518,6 +1725,8 @@ fn test_simultaneous_initiate_repeated_messages() -> TestResult {
                     &alice_address,
                     &mut bob_store_builder.store.session_store,
                     &mut bob_store_builder.store.identity_store,
+                    &mut bob_store_builder.store.kyber_long_term_store,
+                    &mut bob_store_builder.store.falcon_signature_store,
                     &alice_pre_key_bundle,
                     SystemTime::now(),
                     &mut csprng,
@@ -1750,7 +1959,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
             builder.add_kyber_pre_key(IdChoice::Next);
             builder.add_frodokexp_pre_key(IdChoice::Next);
         },
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
     )?;
 
     fn run<F>(add_keys: F, expected_session_version: u32) -> TestResult
@@ -1768,12 +1977,29 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
             let mut bob_store_builder = TestStoreBuilder::new();
             add_keys(&mut bob_store_builder);
 
+            if expected_session_version >= KYBER_KWAAY_AWARE_MESSAGE_VERSION {
+                update_kyber_longterm_and_falcon_signature_store(
+                    &mut alice_store_builder.store,
+                    &bob_store_builder.store,
+                    &bob_address,
+                )
+                .await?;
+                update_kyber_longterm_and_falcon_signature_store(
+                    &mut bob_store_builder.store,
+                    &alice_store_builder.store,
+                    &alice_address,
+                )
+                .await?;
+            }
+
             let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
             process_prekey_bundle(
                 &bob_address,
                 &mut alice_store_builder.store.session_store,
                 &mut alice_store_builder.store.identity_store,
+                &mut alice_store_builder.store.kyber_long_term_store,
+                &mut alice_store_builder.store.falcon_signature_store,
                 &bob_pre_key_bundle,
                 SystemTime::now(),
                 &mut csprng,
@@ -1799,6 +2025,8 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     &bob_address,
                     &mut alice_store_builder.store.session_store,
                     &mut alice_store_builder.store.identity_store,
+                    &mut alice_store_builder.store.kyber_long_term_store,
+                    &mut alice_store_builder.store.falcon_signature_store,
                     &bob_pre_key_bundle,
                     SystemTime::now(),
                     &mut csprng,
@@ -1809,6 +2037,8 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     &alice_address,
                     &mut bob_store_builder.store.session_store,
                     &mut bob_store_builder.store.identity_store,
+                    &mut bob_store_builder.store.kyber_long_term_store,
+                    &mut bob_store_builder.store.falcon_signature_store,
                     &alice_pre_key_bundle,
                     SystemTime::now(),
                     &mut csprng,
@@ -2082,12 +2312,27 @@ fn test_zero_is_a_valid_prekey_id() -> TestResult {
             .with_kyber_pre_key(0.into())
             .with_frodokexp_pre_key(0.into());
 
+        update_kyber_longterm_and_falcon_signature_store(
+            &mut alice_store,
+            &bob_store_builder.store,
+            &bob_address,
+        )
+        .await?;
+        update_kyber_longterm_and_falcon_signature_store(
+            &mut bob_store_builder.store,
+            &alice_store,
+            &alice_address,
+        )
+        .await?;
+
         let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
         process_prekey_bundle(
             &bob_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::now(),
             &mut csprng,
@@ -2100,7 +2345,7 @@ fn test_zero_is_a_valid_prekey_id() -> TestResult {
                 .await?
                 .expect("session found")
                 .session_version()?,
-            KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION
+            KYBER_KWAAY_AWARE_MESSAGE_VERSION
         );
 
         let original_message = "L'homme est condamné à être libre";
@@ -2149,12 +2394,21 @@ fn test_unacknowledged_sessions_eventually_expire() -> TestResult {
             .with_kyber_pre_key(0.into())
             .with_frodokexp_pre_key(0.into());
 
+        update_kyber_longterm_and_falcon_signature_store(
+            &mut alice_store,
+            &bob_store_builder.store,
+            &bob_address,
+        )
+        .await?;
+
         let bob_pre_key_bundle = bob_store_builder.make_bundle_with_latest_keys(1.into());
 
         process_prekey_bundle(
             &bob_address,
             &mut alice_store.session_store,
             &mut alice_store.identity_store,
+            &mut alice_store.kyber_long_term_store,
+            &mut alice_store.falcon_signature_store,
             &bob_pre_key_bundle,
             SystemTime::UNIX_EPOCH,
             &mut csprng,

@@ -77,12 +77,14 @@ pub enum SignalErrorCode {
 impl From<&SignalFfiError> for SignalErrorCode {
     fn from(err: &SignalFfiError) -> Self {
         match err {
+            // SignalFfiError::Mp4SanitizeParse(_) | SignalFfiError::WebpSanitizeParse(_) => todo!(),
             SignalFfiError::NullPointer => SignalErrorCode::NullParameter,
 
             SignalFfiError::UnexpectedPanic(_)
             | SignalFfiError::DeviceTransfer(DeviceTransferError::InternalError(_))
             | SignalFfiError::Signal(SignalProtocolError::FfiBindingError(_))
-            | SignalFfiError::Signal(SignalProtocolError::SKEMDecapsulationError) => {
+            | SignalFfiError::Signal(SignalProtocolError::SKEMDecapsulationError)
+            | SignalFfiError::Signal(SignalProtocolError::FalconReadingFromBytesError) => {
                 SignalErrorCode::InternalError
             }
 
@@ -107,7 +109,9 @@ impl From<&SignalFfiError> for SignalErrorCode {
                 SignalErrorCode::SealedSenderSelfSend
             }
 
-            SignalFfiError::Signal(SignalProtocolError::SignatureValidationFailed) => {
+            SignalFfiError::Signal(SignalProtocolError::SignatureValidationFailed)
+            | SignalFfiError::Signal(SignalProtocolError::FalconSignatureVerificationError)
+            | SignalFfiError::Signal(SignalProtocolError::InvalidSignatureVersion(_)) => {
                 SignalErrorCode::InvalidSignature
             }
 

@@ -14,6 +14,8 @@ pub type JavaPreKeyStore<'a> = JObject<'a>;
 pub type JavaSignedPreKeyStore<'a> = JObject<'a>;
 pub type JavaKyberPreKeyStore<'a> = JObject<'a>;
 pub type JavaFrodokexpPreKeyStore<'a> = JObject<'a>;
+pub type JavaKyberLongTermKeyStore<'a> = JObject<'a>;
+pub type JavaFalconSignatureStore<'a> = JObject<'a>;
 pub type JavaSessionStore<'a> = JObject<'a>;
 pub type JavaSenderKeyStore<'a> = JObject<'a>;
 
@@ -195,6 +197,369 @@ impl<'a> IdentityKeyStore for JniIdentityKeyStore<'a> {
         address: &ProtocolAddress,
     ) -> Result<Option<IdentityKey>, SignalProtocolError> {
         Ok(self.do_get_identity(address)?)
+    }
+}
+
+pub struct JniFalconSignatureStore<'a> {
+    env: RefCell<EnvHandle<'a>>,
+    store: &'a JObject<'a>,
+}
+
+impl<'a> JniFalconSignatureStore<'a> {
+    pub fn new<'context: 'a>(
+        env: &mut JNIEnv<'context>,
+        store: &'a JObject<'a>,
+    ) -> Result<Self, SignalJniError> {
+        check_jobject_type(
+            env,
+            store,
+            jni_class_name!(org.signal.libsignal.protocol.state.FalconSignatureStore),
+        )?;
+        Ok(Self {
+            env: EnvHandle::new(env).into(),
+            store,
+        })
+    }
+}
+
+impl<'a> JniFalconSignatureStore<'a> {
+    fn do_get_falcon_key_pair(&self) -> Result<FalconKeyPair, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let callback_args = jni_args!(() -> org.signal.libsignal.protocol.FalconKeyPair);
+            let bits =
+                get_object_with_serialization(env, self.store, callback_args, "getFalconKeyPair")?;
+
+            match bits {
+                None => Err(SignalProtocolError::InvalidState(
+                    "get_falcon_key_pair",
+                    "no local falcon key".to_string(),
+                )
+                .into()),
+                Some(k) => Ok(FalconKeyPair::deserialize(k.as_ref())?),
+            }
+        })
+    }
+
+    fn do_save_falcon_public(
+        &mut self,
+        address: &ProtocolAddress,
+        falcon_public_key: &FalconPublicKey,
+    ) -> Result<bool, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let address_jobject = protocol_address_to_jobject(env, address)?;
+            let key_handle = falcon_public_key.clone().convert_into(env)?;
+            let key_jobject = jobject_from_native_handle(
+                env,
+                jni_class_name!(org.signal.libsignal.protocol.FalconPublicKey),
+                key_handle,
+            )?;
+            let callback_args = jni_args!((
+            address_jobject => org.signal.libsignal.protocol.SignalProtocolAddress,
+            key_jobject => org.signal.libsignal.protocol.FalconPublicKey
+        ) -> boolean);
+            let result: jboolean =
+                call_method_checked(env, self.store, "saveFalconPublic", callback_args)?;
+            Ok(result != 0)
+        })
+    }
+
+    fn do_sign_with_falcon(&self, msg: &[u8]) -> Result<FalconSignature, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let msg_jobject = env.byte_array_from_slice(msg)?;
+            let callback_args = jni_args!((msg_jobject => jni.src.JByteArray ) -> org.signal.libsignal.protocol.FalconSignature);
+            let bits = get_object_with_serialization(
+                env,
+                self.store,
+                callback_args,
+                "signWithFalcon",
+            )?;
+
+            match bits {
+                None => Err(SignalProtocolError::InvalidState(
+                    "sign_with_falcon",
+                    "no local falcon key".to_string(),
+                )
+                .into()),
+                Some(k) => Ok(FalconSignature::from_bytes(k.as_ref())?),
+            }
+        })
+    }
+
+    fn do_verify_signature(
+        &self,
+        address: &ProtocolAddress,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let address_jobject = protocol_address_to_jobject(env, address)?;
+            let msg_jobject = env.byte_array_from_slice(msg)?;
+            let sig_handle = signature.clone().convert_into(env)?;
+            let sig_jobject = jobject_from_native_handle(
+                env,
+                jni_class_name!(org.signal.libsignal.protocol.FalconSignature),
+                sig_handle,
+            )?;
+            let callback_args = jni_args!((
+            address_jobject => org.signal.libsignal.protocol.SignalProtocolAddress,
+            msg_jobject => jni.src.JByteArray,
+            sig_jobject => org.signal.libsignal.protocol.FalconSignature
+        ) -> void);
+            call_method_checked(env, self.store, "verifySignature", callback_args)?;
+            Ok(())
+        })
+    }
+
+    fn do_verify_signature_with_public_key(
+        &self,
+        public_key: &FalconPublicKey,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let msg_jobject = env.byte_array_from_slice(msg)?;
+            let sig_handle = signature.clone().convert_into(env)?;
+            let sig_jobject = jobject_from_native_handle(
+                env,
+                jni_class_name!(org.signal.libsignal.protocol.FalconSignature),
+                sig_handle,
+            )?;
+            let key_handle = public_key.clone().convert_into(env)?;
+            let key_jobject = jobject_from_native_handle(
+                env,
+                jni_class_name!(org.signal.libsignal.protocol.FalconPublicKey),
+                key_handle,
+            )?;
+            let callback_args = jni_args!((
+            key_jobject => org.signal.libsignal.protocol.FalconPublicKey,
+            msg_jobject => jni.src.JByteArray,
+            sig_jobject => org.signal.libsignal.protocol.FalconSignature
+        ) -> void);
+            call_method_checked(
+                env,
+                self.store,
+                "verifySignatureWithPublicKey",
+                callback_args,
+            )?;
+            Ok(())
+        })
+    }
+
+    fn do_get_falcon_public(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<FalconPublicKey>, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(
+            8,
+            |env| -> SignalJniResult<Option<FalconPublicKey>> {
+                let address_jobject = protocol_address_to_jobject(env, address)?;
+                let callback_args = jni_args!((
+                    address_jobject => org.signal.libsignal.protocol.SignalProtocolAddress,
+                ) -> org.signal.libsignal.protocol.FalconPublicKey);
+
+                let bits = get_object_with_serialization(
+                    env,
+                    self.store,
+                    callback_args,
+                    "getFalconPublic",
+                )?;
+
+                match bits {
+                    None => Ok(None),
+                    Some(k) => Ok(Some(FalconPublicKey::from_bytes(k.as_ref())?)),
+                }
+            },
+        )
+    }
+}
+
+#[async_trait(? Send)]
+impl<'a> FalconSignatureStore for JniFalconSignatureStore<'a> {
+    async fn get_falcon_key_pair(&self) -> Result<FalconKeyPair, SignalProtocolError> {
+        Ok(self.do_get_falcon_key_pair()?)
+    }
+
+    async fn save_falcon_public(
+        &mut self,
+        address: &ProtocolAddress,
+        falcon_public_key: &FalconPublicKey,
+    ) -> Result<bool, SignalProtocolError> {
+        Ok(self.do_save_falcon_public(address, falcon_public_key)?)
+    }
+
+    async fn sign_with_falcon(&self, msg: &[u8]) -> FalconSignature {
+        self.do_sign_with_falcon(msg).unwrap()
+    }
+
+    async fn verify_signature(
+        &self,
+        address: &ProtocolAddress,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalProtocolError> {
+        Ok(self.do_verify_signature(address, msg, signature)?)
+    }
+
+    async fn verify_signature_with_public_key(
+        &self,
+        public_key: &FalconPublicKey,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<(), SignalProtocolError> {
+        Ok(self.do_verify_signature_with_public_key(public_key, msg, signature)?)
+    }
+
+    async fn get_falcon_public(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<FalconPublicKey>, SignalProtocolError> {
+        Ok(self.do_get_falcon_public(address)?)
+    }
+}
+
+pub struct JniKyberLongTermKeyStore<'a> {
+    env: RefCell<EnvHandle<'a>>,
+    store: &'a JObject<'a>,
+}
+
+impl<'a> JniKyberLongTermKeyStore<'a> {
+    pub fn new<'context: 'a>(
+        env: &mut JNIEnv<'context>,
+        store: &'a JObject<'a>,
+    ) -> Result<Self, SignalJniError> {
+        check_jobject_type(
+            env,
+            store,
+            jni_class_name!(org.signal.libsignal.protocol.state.KyberLongTermKeyStore),
+        )?;
+        Ok(Self {
+            env: EnvHandle::new(env).into(),
+            store,
+        })
+    }
+}
+
+impl<'a> JniKyberLongTermKeyStore<'a> {
+    fn do_get_local_kyber_long_term_key_pair(
+        &self,
+    ) -> Result<KyberLongTermKeyPair, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let callback_args = jni_args!(() -> org.signal.libsignal.protocol.KyberLongTermKeyPair);
+            let bits = get_object_with_serialization(
+                env,
+                self.store,
+                callback_args,
+                "getLocalKyberLongTermKeyPair",
+            )?;
+
+            match bits {
+                None => Err(SignalProtocolError::InvalidState(
+                    "get_local_kyber_long_term_key_pair",
+                    "no local kyber long term key".to_string(),
+                )
+                .into()),
+                Some(k) => {
+                    let public_size = long_term_keys::get_public_key_length();
+                    let public =
+                        KyberLongTermKeyPublic::deserialize(&k[..public_size]).map_err(|_| {
+                            SignalProtocolError::InvalidState(
+                                "get_local_kyber_long_term_key_pair",
+                                "invalid local kyber long term public key".to_string(),
+                            )
+                        })?;
+                    let secret =
+                        KyberLongTermKeySecret::deserialize(&k[public_size..]).map_err(|_| {
+                            SignalProtocolError::InvalidState(
+                                "get_local_kyber_long_term_key_pair",
+                                "invalid local kyber long term secret key".to_string(),
+                            )
+                        })?;
+                    Ok(KyberLongTermKeyPair::new(public, secret))
+                }
+            }
+        })
+    }
+
+    fn do_save_kyber_longterm(
+        &mut self,
+        address: &ProtocolAddress,
+        kyber_long_term_key_public: &KyberLongTermKeyPublic,
+    ) -> Result<bool, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(8, |env| {
+            let address_jobject = protocol_address_to_jobject(env, address)?;
+            let key_handle = kyber_long_term_key_public.clone().convert_into(env)?;
+            let key_jobject = jobject_from_native_handle(
+                env,
+                jni_class_name!(org.signal.libsignal.protocol.KyberLongTermKeyPublic),
+                key_handle,
+            )?;
+            let callback_args = jni_args!((
+            address_jobject => org.signal.libsignal.protocol.SignalProtocolAddress,
+            key_jobject => org.signal.libsignal.protocol.KyberLongTermKeyPublic
+        ) -> boolean);
+            let result: jboolean =
+                call_method_checked(env, self.store, "saveKyberLongTermKey", callback_args)?;
+            Ok(result != 0)
+        })
+    }
+
+    fn do_get_kyber_long_term_key(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>, SignalJniError> {
+        self.env.borrow_mut().with_local_frame(
+            8,
+            |env| -> SignalJniResult<Option<KyberLongTermKeyPublic>> {
+                let address_jobject = protocol_address_to_jobject(env, address)?;
+                let callback_args = jni_args!((
+                    address_jobject => org.signal.libsignal.protocol.SignalProtocolAddress,
+                ) -> org.signal.libsignal.protocol.KyberLongTermKeyPublic);
+
+                let bits = get_object_with_serialization(
+                    env,
+                    self.store,
+                    callback_args,
+                    "getKyberLongTermKey",
+                )?;
+
+                match bits {
+                    None => Ok(None),
+                    Some(k) => {
+                        let public = KyberLongTermKeyPublic::deserialize(&k[..]).map_err(|_| {
+                            SignalProtocolError::InvalidState(
+                                "get_kyber_long_term_key",
+                                "invalid kyber long term public key".to_string(),
+                            )
+                        })?;
+                        Ok(Some(public))
+                    }
+                }
+            },
+        )
+    }
+}
+
+#[async_trait(? Send)]
+impl<'a> KyberLongTermKeyStore for JniKyberLongTermKeyStore<'a> {
+    async fn get_local_kyber_long_term_key_pair(
+        &self,
+    ) -> Result<KyberLongTermKeyPair, SignalProtocolError> {
+        Ok(self.do_get_local_kyber_long_term_key_pair()?)
+    }
+
+    async fn save_kyber_longterm(
+        &mut self,
+        address: &ProtocolAddress,
+        kyber_long_term_key_public: &KyberLongTermKeyPublic,
+    ) -> Result<bool, SignalProtocolError> {
+        Ok(self.do_save_kyber_longterm(address, kyber_long_term_key_public)?)
+    }
+
+    async fn get_kyber_long_term_key(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>, SignalProtocolError> {
+        Ok(self.do_get_kyber_long_term_key(address)?)
     }
 }
 

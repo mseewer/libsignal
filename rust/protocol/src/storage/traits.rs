@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use crate::address::ProtocolAddress;
 use crate::error::Result;
+use crate::long_term_keys::{KyberLongTermKeyPair, KyberLongTermKeyPublic};
 use crate::sender_keys::SenderKeyRecord;
+use crate::signature::{FalconKeyPair, FalconPublicKey, FalconSignature};
 use crate::state::{
     FrodokexpPreKeyId, FrodokexpPreKeyRecord, KyberPreKeyId, KyberPreKeyRecord, PreKeyId,
     PreKeyRecord, SessionRecord, SignedPreKeyId, SignedPreKeyRecord,
@@ -73,6 +75,63 @@ pub trait IdentityKeyStore {
     async fn get_identity(&self, address: &ProtocolAddress) -> Result<Option<IdentityKey>>;
 }
 
+/// Interface defining the long-term Kyber key store
+#[async_trait(?Send)]
+pub trait KyberLongTermKeyStore {
+    /// Return the single specific long-term Kyber key the store is assumed to represent, with private key.
+    async fn get_local_kyber_long_term_key_pair(&self) -> Result<KyberLongTermKeyPair>;
+
+    /// Record a Kyber long-term key into the store.
+    async fn save_kyber_longterm(
+        &mut self,
+        address: &ProtocolAddress,
+        kyber_long_term_key_public: &KyberLongTermKeyPublic,
+    ) -> Result<bool>;
+
+    /// Return the public Kyber long-term key for the given `address`, if known.
+    async fn get_kyber_long_term_key(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<KyberLongTermKeyPublic>>;
+}
+
+/// Interface defining the long-term Falcon signature key store
+#[async_trait(?Send)]
+pub trait FalconSignatureStore {
+    /// Return the single specific long-term Falcon signature key, with private key.
+    async fn get_falcon_key_pair(&self) -> Result<FalconKeyPair>;
+
+    /// Save someone else's Falcon public key.
+    async fn save_falcon_public(
+        &mut self,
+        address: &ProtocolAddress,
+        falcon_public_key: &FalconPublicKey,
+    ) -> Result<bool>;
+
+    /// Sign a message with the Falcon signature key.
+    async fn sign_with_falcon(&self, msg: &[u8]) -> FalconSignature;
+
+    /// Verify a signature with the Falcon signature key, if it corresponds to the given message, signing key is based on the address.
+    async fn verify_signature(
+        &self,
+        address: &ProtocolAddress,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<()>;
+
+    /// Verify a signature with the given Falcon public key, if it corresponds to the given message
+    /// public_key is the signing key.
+    async fn verify_signature_with_public_key(
+        &self,
+        public_key: &FalconPublicKey,
+        msg: &[u8],
+        signature: &FalconSignature,
+    ) -> Result<()>;
+
+    /// Return the public Falcon signature key for the given `address`, if known.
+    async fn get_falcon_public(&self, address: &ProtocolAddress)
+        -> Result<Option<FalconPublicKey>>;
+}
 /// Interface for storing pre-keys downloaded from a server.
 #[async_trait(?Send)]
 pub trait PreKeyStore {
@@ -195,5 +254,7 @@ pub trait ProtocolStore:
     + KyberPreKeyStore
     + FrodokexpPreKeyStore
     + IdentityKeyStore
+    + KyberLongTermKeyStore
+    + FalconSignatureStore
 {
 }

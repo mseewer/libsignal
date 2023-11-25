@@ -134,6 +134,8 @@ pub fn session_encrypt_result(c: &mut Criterion) -> Result<(), SignalProtocolErr
         &bob_address,
         &mut alice_store.session_store,
         &mut alice_store.identity_store,
+        &mut alice_store.kyber_long_term_store,
+        &mut alice_store.falcon_signature_store,
         &bob_pre_key_bundle,
         SystemTime::now(),
         &mut OsRng,

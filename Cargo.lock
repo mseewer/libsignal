@@ -1703,6 +1703,7 @@ dependencies = [
  "itertools 0.10.5",
  "log",
  "num_enum",
+ "pqcrypto-falcon",
  "pqcrypto-frodokexp",
  "pqcrypto-kyber 0.7.6",
  "pqcrypto-kyber 0.8.0",
@@ -2194,6 +2195,19 @@ name = "ppv-lite86"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
+
+[[package]]
+name = "pqcrypto-falcon"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35d1d53b8392f416aa11943f83c0372d88090d9c236b21a7f19352e61542119d"
+dependencies = [
+ "cc",
+ "glob",
+ "libc",
+ "pqcrypto-internals",
+ "pqcrypto-traits",
+]
 
 [[package]]
 name = "pqcrypto-frodokexp"

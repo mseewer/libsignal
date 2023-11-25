@@ -54,6 +54,21 @@ export abstract class FrodokexpPreKeyStore {
   _markFrodokexpPreKeyUsed(frodokexpPreKeyId: number): Promise<void>;
 }
 
+export abstract class KyberLongTermKeyStore {
+  _getLocalKyberLongTermKeyPair(): Promise<KyberLongTermKeyPair>;
+  _saveKyberLongTermKey(address: ProtocolAddress, kyber_long_term_key_public: KyberLongTermKeyPublic): Promise<boolean>;
+  _getKyberLongTermKey(address: ProtocolAddress): Promise<KyberLongTermKeyPublic> | null;
+}
+
+export abstract class FalconSignatureStore {
+  _getFalconKeyPair(): Promise<FalconKeyPair>;
+  _saveFalconPublic(address: ProtocolAddress, falcon_public_key: FalconPublicKey): Promise<boolean>;
+  _signWithFalcon(msg: Buffer): Promise<FalconSignature>;
+  _verfiySignature(address: ProtocolAddress, msg: Buffer, signature: FalconSignature): Promise<void>;
+  _verifySignatureWithPublicKey(publicKey: FalconPublicKey, msg: Buffer, signature: FalconSignature): Promise<void>;
+  _getFalconPublic(address: ProtocolAddress): Promise<FalconPublicKey> | null;
+}
+
 export abstract class SenderKeyStore {
   _saveSenderKey(sender: ProtocolAddress, distributionId: Uuid, record: SenderKeyRecord): Promise<void>;
   _getSenderKey(sender: ProtocolAddress, distributionId: Uuid): Promise<SenderKeyRecord | null>;

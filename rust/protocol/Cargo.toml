@@ -36,6 +36,7 @@ thiserror = "1.0.30"
 pqcrypto-kyber = { version = "0.7.6", default-features = false, features = ["std"] }
 pqcrypto-ml-kem = { version = "0.8.0", default-features = false, features = ["std"], package = "pqcrypto-kyber" }
 pqcrypto-traits = "0.3.4"
+pqcrypto-falcon = { version = "0.3.0", default-features = false, features = ["std"] }
 pqcrypto-frodokexp = { git = "https://gitlab.com/mseewer/semester-project-implementation" }
 
 [features]

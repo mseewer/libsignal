@@ -15,18 +15,19 @@ message SignalMessage {
 }
 
 message PreKeySignalMessage {
-  optional uint32 registration_id      = 5;
-  optional uint32 pre_key_id           = 1;
-  optional uint32 signed_pre_key_id    = 6;
-  optional uint32 kyber_pre_key_id     = 7;
-  optional bytes  kyber_ciphertext     = 8;
-  optional uint32 frodokexp_pre_key_id = 9;
-  optional bytes  frodokexp_public_key = 10;
-  optional bytes  frodokexp_ciphertext = 11;
-  optional bytes  frodokexp_tag        = 12;
-  optional bytes  base_key             = 2;
-  optional bytes  identity_key         = 3;
-  optional bytes  message              = 4; // SignalMessage
+  optional uint32 registration_id           = 5;
+  optional uint32 pre_key_id                = 1;
+  optional uint32 signed_pre_key_id         = 6;
+  optional uint32 kyber_pre_key_id          = 7;
+  optional bytes  kyber_ciphertext          = 8;
+  optional uint32 frodokexp_pre_key_id      = 9;
+  optional bytes  frodokexp_public_key      = 10;
+  optional bytes  frodokexp_ciphertext      = 11;
+  optional bytes  frodokexp_tag             = 12;
+  optional bytes  kyber_longterm_ciphertext = 13;
+  optional bytes  base_key                  = 2;
+  optional bytes  identity_key              = 3;
+  optional bytes  message                   = 4; // SignalMessage
 }
 
 message SenderKeyMessage {

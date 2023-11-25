@@ -59,8 +59,10 @@ fn test_ratcheting_session_as_bob() -> Result<(), SignalProtocolError> {
         bob_ephemeral_pair,
         None,
         None,
+        None,
         IdentityKey::decode(&alice_identity_public)?,
         alice_base_public_key,
+        None,
         None,
         None,
         None,
@@ -216,9 +218,11 @@ fn test_alice_and_bob_agree_on_chain_keys_with_kyber() -> Result<(), SignalProto
         bob_ephemeral_key_pair,
         Some(bob_kyber_pre_key_pair),
         None,
+        None,
         *alice_identity_key_pair.identity_key(),
         alice_base_key_pair.public_key,
         Some(&kyber_ciphertext),
+        None,
         None,
         None,
         None,
@@ -245,8 +249,8 @@ fn test_alice_and_bob_agree_on_chain_keys_with_kyber() -> Result<(), SignalProto
 }
 
 #[test]
-fn test_alice_and_bob_agree_on_chain_keys_with_kyber_and_frodokexp(
-) -> Result<(), SignalProtocolError> {
+fn test_alice_and_bob_agree_on_chain_keys_with_kyber_and_kwaay() -> Result<(), SignalProtocolError>
+{
     let mut csprng = rand::rngs::OsRng;
 
     let alice_identity_key_pair = IdentityKeyPair::generate(&mut csprng);
@@ -267,6 +271,7 @@ fn test_alice_and_bob_agree_on_chain_keys_with_kyber_and_frodokexp(
         skem::KeyType::Frodokexp,
         &frodokexp_public_parameters,
     );
+    let bob_kyber_long_term_key_pair = KyberLongTermKeyPair::generate(KYBER_LONG_TERM_KEY_TYPE);
 
     let alice_parameters = AliceSignalProtocolParameters::new(
         alice_identity_key_pair,
@@ -277,17 +282,25 @@ fn test_alice_and_bob_agree_on_chain_keys_with_kyber_and_frodokexp(
     )
     .with_their_kyber_pre_key(&bob_kyber_pre_key_pair.public_key)
     .with_their_frodokexp_pre_key(&bob_frodokexp_key_pair.public_key_mat)
-    .with_our_frodokexp_key_pair(&alice_frodokexp_key_pair);
+    .with_our_frodokexp_key_pair(&alice_frodokexp_key_pair)
+    .with_their_kyber_long_term_key(&bob_kyber_long_term_key_pair.public_key);
 
     let alice_record = initialize_alice_session_record(&alice_parameters, &mut csprng)?;
 
     assert_eq!(
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
         alice_record.session_version().expect("must have a version")
     );
 
     let kyber_ciphertext = alice_record
         .get_kyber_ciphertext()
+        .expect("must have session")
+        .expect("must have kyber ciphertext")
+        .clone()
+        .into_boxed_slice();
+
+    let kyber_longterm_ciphertext = alice_record
+        .get_kyber_longterm_ciphertext()
         .expect("must have session")
         .expect("must have kyber ciphertext")
         .clone()
@@ -322,17 +335,19 @@ fn test_alice_and_bob_agree_on_chain_keys_with_kyber_and_frodokexp(
         bob_ephemeral_key_pair,
         Some(bob_kyber_pre_key_pair),
         Some(bob_frodokexp_key_pair),
+        Some(bob_kyber_long_term_key_pair),
         *alice_identity_key_pair.identity_key(),
         alice_base_key_pair.public_key,
         Some(&kyber_ciphertext),
         Some(&frodokexp_ciphertext),
         Some(&frodokexp_tag),
         Some(&frodokexp_their_encaps_public_key),
+        Some(&kyber_longterm_ciphertext),
     );
     let bob_record = initialize_bob_session_record(&bob_parameters)?;
 
     assert_eq!(
-        KYBER_FRODOKEXP_AWARE_MESSAGE_VERSION,
+        KYBER_KWAAY_AWARE_MESSAGE_VERSION,
         bob_record.session_version().expect("must have a version")
     );
 

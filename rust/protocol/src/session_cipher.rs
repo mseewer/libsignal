@@ -8,13 +8,14 @@ use std::time::SystemTime;
 use rand::{CryptoRng, Rng};
 
 use crate::consts::{MAX_FORWARD_JUMPS, MAX_UNACKNOWLEDGED_SESSION_AGE};
+use crate::protocol::KyberLongtermPayload;
 use crate::ratchet::{ChainKey, MessageKeys};
 use crate::state::{InvalidSessionError, SessionState};
 use crate::{
     session, CiphertextMessage, CiphertextMessageType, Direction, FrodokexpPayload,
-    FrodokexpPreKeyStore, IdentityKeyStore, KeyPair, KyberPayload, KyberPreKeyStore,
-    PreKeySignalMessage, PreKeyStore, ProtocolAddress, PublicKey, Result, SessionRecord,
-    SessionStore, SignalMessage, SignalProtocolError, SignedPreKeyStore,
+    FrodokexpPreKeyStore, IdentityKeyStore, KeyPair, KyberLongTermKeyStore, KyberPayload,
+    KyberPreKeyStore, PreKeySignalMessage, PreKeyStore, ProtocolAddress, PublicKey, Result,
+    SessionRecord, SessionStore, SignalMessage, SignalProtocolError, SignedPreKeyStore,
 };
 
 pub async fn message_encrypt(
@@ -106,6 +107,10 @@ pub async fn message_encrypt(
                 FrodokexpPayload::new(id, ciphertext.into(), tag.into(), public_key.into())
             });
 
+        let kyber_longterm_payload = items
+            .kyber_longterm_ciphertext()
+            .map(|ciphertext| KyberLongtermPayload::new(ciphertext.into()));
+
         CiphertextMessage::PreKeySignalMessage(PreKeySignalMessage::new(
             session_version,
             local_registration_id,
@@ -113,6 +118,7 @@ pub async fn message_encrypt(
             items.signed_pre_key_id(),
             kyber_payload,
             frodokexp_payload,
+            kyber_longterm_payload,
             *items.base_key(),
             local_identity_key,
             message,
@@ -171,6 +177,7 @@ pub async fn message_decrypt<R: Rng + CryptoRng>(
     signed_pre_key_store: &dyn SignedPreKeyStore,
     kyber_pre_key_store: &mut dyn KyberPreKeyStore,
     frodokexp_pre_key_store: &mut dyn FrodokexpPreKeyStore,
+    kyber_long_term_key_store: &mut dyn KyberLongTermKeyStore,
     csprng: &mut R,
 ) -> Result<Vec<u8>> {
     match ciphertext {
@@ -187,6 +194,7 @@ pub async fn message_decrypt<R: Rng + CryptoRng>(
                 signed_pre_key_store,
                 kyber_pre_key_store,
                 frodokexp_pre_key_store,
+                kyber_long_term_key_store,
                 csprng,
             )
             .await
@@ -207,6 +215,7 @@ pub async fn message_decrypt_prekey<R: Rng + CryptoRng>(
     signed_pre_key_store: &dyn SignedPreKeyStore,
     kyber_pre_key_store: &mut dyn KyberPreKeyStore,
     frodokexp_pre_key_store: &mut dyn FrodokexpPreKeyStore,
+    kyber_long_term_key_store: &mut dyn KyberLongTermKeyStore,
     csprng: &mut R,
 ) -> Result<Vec<u8>> {
     let mut session_record = session_store
@@ -224,6 +233,7 @@ pub async fn message_decrypt_prekey<R: Rng + CryptoRng>(
         signed_pre_key_store,
         kyber_pre_key_store,
         frodokexp_pre_key_store,
+        kyber_long_term_key_store,
     )
     .await;
 

@@ -14,6 +14,8 @@ import org.signal.libsignal.protocol.state.PreKeyStore;
 import org.signal.libsignal.protocol.state.SignedPreKeyStore;
 import org.signal.libsignal.protocol.state.KyberPreKeyStore;
 import org.signal.libsignal.protocol.state.FrodokexpPreKeyStore;
+import org.signal.libsignal.protocol.state.KyberLongTermKeyStore;
+import org.signal.libsignal.protocol.state.FalconSignatureStore;
 import org.signal.libsignal.protocol.groups.state.SenderKeyStore;
 import org.signal.libsignal.protocol.logging.Log;
 import org.signal.libsignal.protocol.logging.SignalProtocolLogger;
@@ -220,6 +222,10 @@ public final class Native {
   public static native void ExpiringProfileKeyCredential_CheckValidContents(byte[] buffer);
   public static native long ExpiringProfileKeyCredential_GetExpirationTime(byte[] credential);
 
+  public static native void FalconPublicKey_Destroy(long handle);
+
+  public static native void FalconSignature_Destroy(long handle);
+
   public static native void FrodokexpDecapsulatorKeyPair_Destroy(long handle);
   public static native long FrodokexpDecapsulatorKeyPair_Generate(long pp);
   public static native long FrodokexpDecapsulatorKeyPair_GetPublicKey(long keyPair);
@@ -305,6 +311,10 @@ public final class Native {
   public static native long KyberKeyPair_Generate();
   public static native long KyberKeyPair_GetPublicKey(long keyPair);
   public static native long KyberKeyPair_GetSecretKey(long keyPair);
+
+  public static native long KyberLongTermKeyPair_Generate();
+  public static native long KyberLongTermKeyPair_GetPublicKey(long keyPair);
+  public static native long KyberLongTermKeyPair_GetSecretKey(long keyPair);
 
   public static native long KyberPreKeyRecord_Deserialize(byte[] data);
   public static native void KyberPreKeyRecord_Destroy(long handle);
@@ -522,9 +532,9 @@ public final class Native {
   public static native String ServiceId_ServiceIdLog(byte[] value);
   public static native String ServiceId_ServiceIdString(byte[] value);
 
-  public static native void SessionBuilder_ProcessPreKeyBundle(long bundle, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, long now);
+  public static native void SessionBuilder_ProcessPreKeyBundle(long bundle, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, KyberLongTermKeyStore kyberLongtermKeyStore, FalconSignatureStore falconSignatureStore, long now);
 
-  public static native byte[] SessionCipher_DecryptPreKeySignalMessage(long message, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, PreKeyStore prekeyStore, SignedPreKeyStore signedPrekeyStore, KyberPreKeyStore kyberPrekeyStore, FrodokexpPreKeyStore frodokexpPrekeyStore);
+  public static native byte[] SessionCipher_DecryptPreKeySignalMessage(long message, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, PreKeyStore prekeyStore, SignedPreKeyStore signedPrekeyStore, KyberPreKeyStore kyberPrekeyStore, FrodokexpPreKeyStore frodokexpPrekeyStore, KyberLongTermKeyStore kyberLongtermkeyStore);
   public static native byte[] SessionCipher_DecryptSignalMessage(long message, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore);
   public static native CiphertextMessage SessionCipher_EncryptMessage(byte[] ptext, long protocolAddress, SessionStore sessionStore, IdentityKeyStore identityKeyStore, long now);
 
