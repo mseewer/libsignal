@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::chat::errors::ChatNetworkError;
-use crate::chat::{ChatService, MessageProto, ResponseProto};
+use crate::chat::{ChatService, Request, ResponseProto};
 use crate::infra::connection_manager::ConnectionManager;
 use crate::infra::errors::LogSafeDisplay;
 use crate::infra::reconnect::{ServiceConnector, ServiceWithReconnect};
@@ -24,13 +24,13 @@ where
     C::Error: Send + Sync + Debug + LogSafeDisplay,
 {
     async fn send(
-        &mut self,
-        msg: &MessageProto,
+        &self,
+        msg: Request,
         timeout: Duration,
     ) -> Result<ResponseProto, ChatNetworkError> {
         let service = self.service_clone().await;
         match service {
-            Some(mut s) => s.send(msg, timeout).await,
+            Some(s) => s.send(msg, timeout).await,
             None => Err(ChatNetworkError::NoServiceConnection),
         }
     }

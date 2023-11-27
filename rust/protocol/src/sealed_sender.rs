@@ -17,12 +17,14 @@ use aes_gcm_siv::aead::generic_array::typenum::Unsigned;
 use aes_gcm_siv::{AeadInPlace, Aes256GcmSiv, KeyInit};
 use arrayref::array_ref;
 use curve25519_dalek::scalar::Scalar;
+use indexmap::IndexMap;
 use prost::Message;
 use rand::{CryptoRng, Rng};
 use subtle::ConstantTimeEq;
 
 use proto::sealed_sender::unidentified_sender_message::message::Type as ProtoMessageType;
 
+use std::ops::Range;
 use std::time::SystemTime;
 
 #[derive(Debug, Clone)]
@@ -43,6 +45,13 @@ If a production server certificate is ever generated which collides
 with this test certificate ID, Bad Things will happen.
 */
 const REVOKED_SERVER_CERTIFICATE_KEY_IDS: &[u32] = &[0xDEADC357];
+
+// Valid registration IDs fit in 14 bits.
+// TODO: move this into a RegistrationId strong type.
+const VALID_REGISTRATION_ID_MASK: u16 = 0x3FFF;
+
+// TODO: validate this as part of constructing DeviceId.
+const MAX_VALID_DEVICE_ID: u32 = 127;
 
 impl ServerCertificate {
     pub fn deserialize(data: &[u8]) -> Result<Self> {
@@ -519,9 +528,11 @@ enum UnidentifiedSenderMessage {
     },
 }
 
-const SEALED_SENDER_V1_VERSION: u8 = 1;
-const SEALED_SENDER_V2_VERSION: u8 = 2;
-const SERVICE_ID_AWARE_VERSION: u8 = 3;
+const SEALED_SENDER_V1_MAJOR_VERSION: u8 = 1;
+const SEALED_SENDER_V1_FULL_VERSION: u8 = 0x11;
+const SEALED_SENDER_V2_MAJOR_VERSION: u8 = 2;
+const SEALED_SENDER_V2_UUID_FULL_VERSION: u8 = 0x22;
+const SEALED_SENDER_V2_SERVICE_ID_FULL_VERSION: u8 = 0x23;
 
 impl UnidentifiedSenderMessage {
     fn deserialize(data: &[u8]) -> Result<Self> {
@@ -537,7 +548,7 @@ impl UnidentifiedSenderMessage {
         );
 
         match version {
-            0 | SEALED_SENDER_V1_VERSION => {
+            0 | SEALED_SENDER_V1_MAJOR_VERSION => {
                 // XXX should we really be accepted version == 0 here?
                 let pb = proto::sealed_sender::UnidentifiedSenderMessage::decode(&data[1..])
                     .map_err(|_| SignalProtocolError::InvalidProtobufEncoding)?;
@@ -560,7 +571,7 @@ impl UnidentifiedSenderMessage {
                     encrypted_message,
                 })
             }
-            SEALED_SENDER_V2_VERSION => {
+            SEALED_SENDER_V2_MAJOR_VERSION => {
                 // Uses a flat representation: C || AT || E.pub || ciphertext
                 let remaining = &data[1..];
                 if remaining.len()
@@ -885,8 +896,7 @@ pub async fn sealed_sender_encrypt_from_usmc<R: Rng + CryptoRng>(
     )
     .expect("just generated these keys, they should be correct");
 
-    let version = SEALED_SENDER_V1_VERSION;
-    let mut serialized = vec![version | (version << 4)];
+    let mut serialized = vec![SEALED_SENDER_V1_FULL_VERSION];
     let pb = proto::sealed_sender::UnidentifiedSenderMessage {
         ephemeral_public: Some(ephemeral.public_key.serialize().to_vec()),
         encrypted_static: Some(static_key_ctext),
@@ -1206,20 +1216,35 @@ mod sealed_sender_v2 {
 /// ## Sent messages
 ///
 /// ```text
+/// SentMessage {
+///     version_byte: u8,
+///     count: varint,
+///     recipients: [PerRecipientData | ExcludedRecipient; count],
+///     e_pub: [u8; 32],
+///     message: [u8] // remaining bytes
+/// }
+///
 /// PerRecipientData {
-///     service_id_fixed_width_binary: [u8; 17],
-///     device_id: varint,
-///     registration_id: u16,
+///     recipient: Recipient,
+///     devices: [DeviceList], // last element's has_more = 0
 ///     c: [u8; 32],
 ///     at: [u8; 16],
 /// }
 ///
-/// SentMessage {
-///     version_byte: u8,
-///     count: varint,
-///     recipients: [PerRecipientData; count],
-///     e_pub: [u8; 32],
-///     message: [u8] // remaining bytes
+/// ExcludedRecipient {
+///     recipient: Recipient,
+///     no_devices_marker: u8 = 0, // never a valid device ID
+/// }
+///
+/// DeviceList {
+///     device_id: u8,
+///     has_more: u1, // high bit of following field
+///     unused: u1,   // high bit of following field
+///     registration_id: u14,
+/// }
+///
+/// Recipient {
+///     service_id_fixed_width_binary: [u8; 17],
 /// }
 /// ```
 ///
@@ -1312,8 +1337,7 @@ async fn sealed_sender_multi_recipient_encrypt_impl<R: Rng + CryptoRng>(
     };
 
     // Uses a flat representation: count || ServiceId_i || deviceId_i || registrationId_i || C_i || AT_i || ... || E.pub || ciphertext
-    let mut serialized: Vec<u8> =
-        vec![(SERVICE_ID_AWARE_VERSION | (SEALED_SENDER_V2_VERSION << 4))];
+    let mut serialized: Vec<u8> = vec![SEALED_SENDER_V2_SERVICE_ID_FULL_VERSION];
 
     prost::encode_length_delimiter(destinations.len(), &mut serialized)
         .expect("cannot fail encoding to Vec");
@@ -1352,9 +1376,7 @@ async fn sealed_sender_multi_recipient_encrypt_impl<R: Rng + CryptoRng>(
                 ),
             )
         })?;
-        // Valid registration IDs fit in 14 bits.
-        // TODO: move this into a RegistrationId strong type.
-        if their_registration_id & 0x3FFF != their_registration_id {
+        if their_registration_id & u32::from(VALID_REGISTRATION_ID_MASK) != their_registration_id {
             return Err(SignalProtocolError::InvalidRegistrationId(
                 destination.clone(),
                 their_registration_id,
@@ -1413,13 +1435,10 @@ async fn sealed_sender_multi_recipient_encrypt_impl<R: Rng + CryptoRng>(
 ///
 /// See [`SealedSenderV2SentMessage`].
 pub struct SealedSenderV2SentMessageRecipient<'a> {
-    /// The recipient's service ID.
-    pub service_id: ServiceId,
-    /// The recipient's device ID.
-    pub device_id: DeviceId,
-    /// The recipient device's registration ID.
-    pub registration_id: u16,
-    /// A concatenation of the `C_i` and `AT_i` SSv2 fields for this recipient.
+    /// The recipient's devices and their registration IDs. May be empty.
+    pub devices: Vec<(DeviceId, u16)>,
+    /// A concatenation of the `C_i` and `AT_i` SSv2 fields for this recipient, or an empty slice if
+    /// the recipient has no devices.
     c_and_at: &'a [u8],
 }
 
@@ -1427,10 +1446,16 @@ pub struct SealedSenderV2SentMessageRecipient<'a> {
 ///
 /// This only parses enough to fan out the message as a series of ReceivedMessages.
 pub struct SealedSenderV2SentMessage<'a> {
+    /// The full message, for calculating offsets.
+    full_message: &'a [u8],
     /// The version byte at the head of the message.
     pub version: u8,
-    /// The parsed list of recipients.
-    pub recipients: Vec<SealedSenderV2SentMessageRecipient<'a>>,
+    /// The parsed list of recipients, grouped by ServiceId.
+    ///
+    /// The map is ordered by when a recipient first appears in the full message, even if they
+    /// appear again later with more devices. This makes iteration over the full set of recipients
+    /// deterministic.
+    pub recipients: IndexMap<ServiceId, SealedSenderV2SentMessageRecipient<'a>>,
     /// A concatenation of the `e_pub` and `message` SSv2 fields for this recipient.
     shared_bytes: &'a [u8],
 }
@@ -1445,7 +1470,10 @@ impl<'a> SealedSenderV2SentMessage<'a> {
         }
 
         let version = data[0];
-        if version >> 4 != SEALED_SENDER_V2_VERSION {
+        if !matches!(
+            version,
+            SEALED_SENDER_V2_UUID_FULL_VERSION | SEALED_SENDER_V2_SERVICE_ID_FULL_VERSION
+        ) {
             return Err(SignalProtocolError::UnknownSealedSenderVersion(version));
         }
 
@@ -1467,40 +1495,91 @@ impl<'a> SealedSenderV2SentMessage<'a> {
                 .map_err(|_| SignalProtocolError::InvalidProtobufEncoding)
         }
 
-        let mut data = &data[1..];
-        let recipient_count = decode_varint(&mut data)?;
+        let mut remaining = &data[1..];
+        let recipient_count = decode_varint(&mut remaining)?
+            .try_into()
+            .unwrap_or(usize::MAX);
 
-        let mut recipients = Vec::with_capacity(recipient_count as usize);
+        // Cap our preallocated capacity; anything higher than this is *probably* a mistake, but
+        // could just be a very large message.
+        // (Callers can of course refuse to process messages with too many recipients.)
+        let mut recipients: IndexMap<ServiceId, SealedSenderV2SentMessageRecipient<'a>> =
+            IndexMap::with_capacity(std::cmp::min(recipient_count as usize, 6000));
         for _ in 0..recipient_count {
-            let service_id = if version & 0xF == SEALED_SENDER_V2_VERSION {
+            let service_id = if version == SEALED_SENDER_V2_UUID_FULL_VERSION {
                 // The original version of SSv2 assumed ACIs here, and only encoded the raw UUID.
                 ServiceId::from(Aci::from_uuid_bytes(*advance::<
                     { std::mem::size_of::<uuid::Bytes>() },
-                >(&mut data)?))
+                >(&mut remaining)?))
             } else {
                 ServiceId::parse_from_service_id_fixed_width_binary(advance::<
                     { std::mem::size_of::<ServiceIdFixedWidthBinaryBytes>() },
-                >(&mut data)?)
+                >(
+                    &mut remaining
+                )?)
                 .ok_or(SignalProtocolError::InvalidProtobufEncoding)?
             };
-            let device_id = DeviceId::from(decode_varint(&mut data)?);
-            let registration_id = u16::from_be_bytes(*advance::<2>(&mut data)?);
-            let c_and_at = advance::<
-                { sealed_sender_v2::MESSAGE_KEY_LEN + sealed_sender_v2::AUTH_TAG_LEN },
-            >(&mut data)?;
+            let mut devices = Vec::new();
+            loop {
+                let device_id: u32 = advance::<1>(&mut remaining)?[0].into();
+                if device_id == 0 {
+                    if !devices.is_empty() {
+                        return Err(SignalProtocolError::InvalidProtobufEncoding);
+                    }
+                    break;
+                }
+                if device_id > MAX_VALID_DEVICE_ID {
+                    return Err(SignalProtocolError::InvalidProtobufEncoding);
+                }
+                let registration_id_and_has_more =
+                    u16::from_be_bytes(*advance::<2>(&mut remaining)?);
+                devices.push((
+                    device_id.into(),
+                    registration_id_and_has_more & VALID_REGISTRATION_ID_MASK,
+                ));
+                let has_more = (registration_id_and_has_more & 0x8000) != 0;
+                if !has_more {
+                    break;
+                }
+            }
 
-            recipients.push(SealedSenderV2SentMessageRecipient {
-                service_id,
-                device_id,
-                registration_id,
-                c_and_at,
-            });
+            let c_and_at: &[u8] = if devices.is_empty() {
+                &[]
+            } else {
+                advance::<{ sealed_sender_v2::MESSAGE_KEY_LEN + sealed_sender_v2::AUTH_TAG_LEN }>(
+                    &mut remaining,
+                )?
+            };
+
+            match recipients.entry(service_id) {
+                indexmap::map::Entry::Occupied(mut existing) => {
+                    if existing.get().devices.is_empty() || devices.is_empty() {
+                        return Err(SignalProtocolError::InvalidSealedSenderMessage(
+                            "recipient redundantly encoded as empty".to_owned(),
+                        ));
+                    }
+                    // We don't unique the recipient devices; the server is going to check this
+                    // against the account's canonical list of devices anyway.
+                    existing.get_mut().devices.extend(devices);
+                    // Note that we don't check that c_and_at matches. Any case where it doesn't
+                    // match would already result in a decryption error for at least one of the
+                    // recipient's devices, though.
+                }
+                indexmap::map::Entry::Vacant(entry) => {
+                    entry.insert(SealedSenderV2SentMessageRecipient { devices, c_and_at });
+                }
+            };
+        }
+
+        if remaining.len() < curve::curve25519::PUBLIC_KEY_LENGTH {
+            return Err(SignalProtocolError::InvalidProtobufEncoding);
         }
 
         Ok(Self {
+            full_message: data,
             version,
             recipients,
-            shared_bytes: data,
+            shared_bytes: remaining,
         })
     }
 
@@ -1516,11 +1595,75 @@ impl<'a> SealedSenderV2SentMessage<'a> {
     ) -> impl AsRef<[&[u8]]> {
         // Why not use `IntoIterator<Item = &[u8]>` as the result? Because the `concat` method on
         // slices is more efficient when the caller just wants a `Vec<u8>`.
+        // Why use SEALED_SENDER_V2_UUID_FULL_VERSION as the version? Because the ReceivedMessage
+        // format hasn't changed since then.
         [
-            std::slice::from_ref(&self.version),
+            &[SEALED_SENDER_V2_UUID_FULL_VERSION],
             recipient.c_and_at,
             self.shared_bytes,
         ]
+    }
+
+    /// Returns the offset of `addr` within `self.full_message`, or `None` if `addr` does not lie
+    /// within `self.full_message`.
+    ///
+    /// A stripped-down version of [a dormant Rust RFC][subslice-offset].
+    ///
+    /// [subslice-offset]: https://github.com/rust-lang/rfcs/pull/2796
+    #[inline]
+    fn offset_within_full_message(&self, addr: *const u8) -> Option<usize> {
+        // Arithmetic on addresses is valid for offsets within a byte array.
+        // If addr < start, we'll wrap around to a very large value, which will be out of range just
+        // like if addr > end.
+        let offset = (addr as usize).wrapping_sub(self.full_message.as_ptr() as usize);
+        // We *do* want to allow the "one-past-the-end" offset here, because the offset might be
+        // used as part of a range (e.g. 0..end).
+        if offset <= self.full_message.len() {
+            debug_assert!(
+                offset == self.full_message.len() || std::ptr::eq(&self.full_message[offset], addr)
+            );
+            Some(offset)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the range within the full message of `recipient`'s user-specific key material.
+    ///
+    /// This can be concatenated as `[version, recipient_key_material, shared_bytes]` to produce a
+    /// valid SSv2 ReceivedMessage, the payload delivered to recipients.
+    ///
+    /// **Panics** if `recipient` is not one of the recipients in `self`.
+    pub fn range_for_recipient_key_material(
+        &self,
+        recipient: &SealedSenderV2SentMessageRecipient<'a>,
+    ) -> Range<usize> {
+        if recipient.c_and_at.is_empty() {
+            return 0..0;
+        }
+        let offset = self
+            .offset_within_full_message(recipient.c_and_at.as_ptr())
+            .expect("'recipient' is not one of the recipients in this SealedSenderV2SentMessage");
+        let end_offset = offset.saturating_add(recipient.c_and_at.len());
+        assert!(
+            end_offset <= self.full_message.len(),
+            "invalid 'recipient' passed to range_for_recipient_key_material"
+        );
+        offset..end_offset
+    }
+
+    /// Returns the offset of the shared bytes within the full message.
+    ///
+    /// This can be concatenated as `[version, recipient_key_material, shared_bytes]` to produce a
+    /// valid SSv2 ReceivedMessage, the payload delivered to recipients.
+    pub fn offset_of_shared_bytes(&self) -> usize {
+        debug_assert_eq!(
+            self.full_message.as_ptr_range().end,
+            self.shared_bytes.as_ptr_range().end,
+            "SealedSenderV2SentMessage parsed incorrectly"
+        );
+        self.offset_within_full_message(self.shared_bytes.as_ptr())
+            .expect("constructed correctly")
     }
 }
 
