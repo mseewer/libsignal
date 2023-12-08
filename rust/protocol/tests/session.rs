@@ -176,6 +176,17 @@ fn test_basic_prekey() -> TestResult {
 
             let alice_decrypts = decrypt(alice_store, &bob_address, &bob_outgoing).await?;
 
+            {
+                let record_len = alice_store.session_store.load_session(&bob_address).await
+                    .expect("can load session")
+                    .expect("has session record")
+                    .serialize()
+                    .expect("can serialize session record")
+                    .len();
+                assert!(1024 > record_len, "Unexpectedly large session record ({record_len} bytes). Did you forget to clean things up?")
+            }
+
+
             assert_eq!(
                 String::from_utf8(alice_decrypts).expect("valid utf8"),
                 bobs_response
@@ -2064,7 +2075,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                         &alice_store_builder.store,
                         &alice_address,
                         &bob_store_builder.store,
-                        &bob_address
+                        &bob_address,
                     )
                     .await?
                 );
@@ -2111,7 +2122,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                         &alice_store_builder.store,
                         &alice_address,
                         &bob_store_builder.store,
-                        &bob_address
+                        &bob_address,
                     )
                     .await?
                 );
@@ -2137,7 +2148,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                         &alice_store_builder.store,
                         &alice_address,
                         &bob_store_builder.store,
-                        &bob_address
+                        &bob_address,
                     )
                     .await?
                 );
@@ -2182,7 +2193,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                         &alice_store_builder.store,
                         &alice_address,
                         &bob_store_builder.store,
-                        &bob_address
+                        &bob_address,
                     )
                     .await?
                 );
@@ -2205,7 +2216,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     &alice_store_builder.store,
                     &alice_address,
                     &bob_store_builder.store,
-                    &bob_address
+                    &bob_address,
                 )
                 .await?
             );
@@ -2233,7 +2244,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     &bob_store_builder.store,
                     &bob_address,
                     &alice_store_builder.store,
-                    &alice_address
+                    &alice_address,
                 )
                 .await?
             );
@@ -2256,7 +2267,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     &bob_store_builder.store,
                     &bob_address,
                     &alice_store_builder.store,
-                    &alice_address
+                    &alice_address,
                 )
                 .await?
             );
@@ -2284,7 +2295,7 @@ fn test_simultaneous_initiate_lost_message_repeated_messages() -> TestResult {
                     &bob_store_builder.store,
                     &bob_address,
                     &alice_store_builder.store,
-                    &alice_address
+                    &alice_address,
                 )
                 .await?
             );

@@ -24,7 +24,7 @@ pub mod node;
 #[macro_use]
 mod support;
 
-pub use support::{describe_panic, AsyncRuntime};
+pub use support::{describe_panic, AsyncRuntime, ResultReporter};
 
 pub mod crypto;
 pub mod protocol;
@@ -43,7 +43,7 @@ pub mod zkgroup;
 #[cfg(feature = "ffi")]
 pub mod ias;
 
-#[cfg(feature = "node")]
+#[cfg(any(feature = "node", feature = "jni"))]
 pub mod net;
 
 // Desktop does not use SVR

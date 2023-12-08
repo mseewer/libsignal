@@ -1,5 +1,10 @@
+//
+// Copyright 2023 Signal Messenger, LLC.
+// SPDX-License-Identifier: AGPL-3.0-only
+//
 use curve25519_dalek::ristretto::RistrettoPoint;
 use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::traits::Identity;
 use rand_core::OsRng;
 use sha2::{Digest, Sha512};
 
@@ -15,9 +20,12 @@ pub fn apply_blind(oprf_input: &[u8], blind: &Scalar) -> RistrettoPoint {
 pub fn blind(oprf_input: &[u8]) -> Result<(Scalar, RistrettoPoint), OPRFError> {
     let blind = Scalar::random(&mut OsRng);
 
-    // TODO: check it is not equal to the identity
     let blinded_element = apply_blind(oprf_input, &blind);
-    Ok((blind, blinded_element))
+    if blinded_element == RistrettoPoint::identity() {
+        Err(OPRFError::BlindError)
+    } else {
+        Ok((blind, blinded_element))
+    }
 }
 
 pub fn finalize(oprf_input: &[u8], blind: &Scalar, evaluated_element: &RistrettoPoint) -> [u8; 64] {
@@ -45,8 +53,8 @@ mod tests {
     use curve25519_dalek::scalar::Scalar;
     use hex_literal::hex;
 
-    use crate::svr3::oprf::ciphersuite::tests::derive_key_pair;
-    use crate::svr3::oprf::client::{apply_blind, finalize};
+    use crate::oprf::ciphersuite::tests::derive_key_pair;
+    use crate::oprf::client::{apply_blind, finalize};
 
     fn blind_evaluate(sk: &Scalar, blinded_element: &RistrettoPoint) -> RistrettoPoint {
         sk * blinded_element

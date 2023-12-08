@@ -12,7 +12,6 @@ use std::future::Future;
 use crate::support::*;
 use crate::*;
 
-#[cfg(feature = "node")]
 mod net;
 mod types;
 use types::*;
@@ -27,14 +26,17 @@ bridge_handle!(
 
 impl<F> AsyncRuntime<F> for NonSuspendingBackgroundThreadRuntime
 where
-    F: Future<Output = ()> + Send + 'static,
+    F: Future + Send + 'static,
+    F::Output: ResultReporter,
+    <F::Output as ResultReporter>::Receiver: Send,
 {
-    fn run_future(&self, future: F) {
+    fn run_future(&self, future: F, completer: <F::Output as ResultReporter>::Receiver) {
         std::thread::spawn(move || {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
                 future
                     .now_or_never()
                     .expect("no need to suspend in testing methods")
+                    .report_to(completer);
             }))
             .unwrap_or_else(|_| {
                 // Since this is a testing method, make sure we crash on uncaught panics.
@@ -57,6 +59,38 @@ async fn TESTING_FutureSuccess(input: u8) -> i32 {
 #[bridge_io(NonSuspendingBackgroundThreadRuntime)]
 async fn TESTING_FutureFailure(_input: u8) -> Result<i32, SignalProtocolError> {
     Err(SignalProtocolError::InvalidArgument("failure".to_string()))
+}
+
+#[derive(Clone)]
+pub struct TestingHandleType {
+    value: u8,
+}
+bridge_handle!(TestingHandleType);
+
+#[bridge_fn]
+fn TESTING_TestingHandleType_getValue(handle: &TestingHandleType) -> u8 {
+    handle.value
+}
+
+#[bridge_io(NonSuspendingBackgroundThreadRuntime)]
+async fn TESTING_FutureProducesPointerType(input: u8) -> TestingHandleType {
+    TestingHandleType { value: input }
+}
+
+#[derive(Clone)]
+pub struct OtherTestingHandleType {
+    value: String,
+}
+bridge_handle!(OtherTestingHandleType);
+
+#[bridge_fn]
+fn TESTING_OtherTestingHandleType_getValue(handle: &OtherTestingHandleType) -> String {
+    handle.value.clone()
+}
+
+#[bridge_io(NonSuspendingBackgroundThreadRuntime)]
+async fn TESTING_FutureProducesOtherPointerType(input: String) -> OtherTestingHandleType {
+    OtherTestingHandleType { value: input }
 }
 
 #[bridge_fn]

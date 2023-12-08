@@ -197,19 +197,14 @@ dependencies = [
  "chacha20poly1305 0.10.1",
  "chrono",
  "ciborium",
- "criterion",
- "curve25519-dalek",
  "displaydoc",
  "hex",
  "hex-literal",
- "hkdf",
  "lazy_static",
  "libc",
  "log",
- "num_enum",
  "prost",
  "prost-build",
- "rand",
  "rand_core",
  "serde",
  "serde_json",
@@ -757,8 +752,8 @@ dependencies = [
 
 [[package]]
 name = "curve25519-dalek"
-version = "4.0.0"
-source = "git+https://github.com/signalapp/curve25519-dalek?tag=signal-curve25519-4.0.0#463e5c7cba32561ffee8a281c4455ff3c25660d4"
+version = "4.1.1"
+source = "git+https://github.com/signalapp/curve25519-dalek?tag=signal-curve25519-4.1.1#a12ab4e58455bb3dc7cd73a0f9f3443507b2854b"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -776,7 +771,7 @@ dependencies = [
 [[package]]
 name = "curve25519-dalek-derive"
 version = "0.1.0"
-source = "git+https://github.com/signalapp/curve25519-dalek?tag=signal-curve25519-4.0.0#463e5c7cba32561ffee8a281c4455ff3c25660d4"
+source = "git+https://github.com/signalapp/curve25519-dalek?tag=signal-curve25519-4.1.1#a12ab4e58455bb3dc7cd73a0f9f3443507b2854b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1001,9 +996,9 @@ checksum = "25cbce373ec4653f1a01a31e8a5e5ec0c622dc27ff9c4e6606eefef5cbbed4a5"
 
 [[package]]
 name = "fiat-crypto"
-version = "0.1.20"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e825f6987101665dea6ec934c09ec6d721de7bc1bf92248e1d5810c8cd636b77"
+checksum = "27573eac26f4dd11e2b1916c3fe1baa56407c83c71a773a8ba17ec0bca03b6b7"
 
 [[package]]
 name = "fixedbitset"
@@ -1660,7 +1655,7 @@ dependencies = [
 
 [[package]]
 name = "libsignal-ffi"
-version = "0.35.0"
+version = "0.36.1"
 dependencies = [
  "async-trait",
  "attest",
@@ -1682,7 +1677,7 @@ dependencies = [
 
 [[package]]
 name = "libsignal-jni"
-version = "0.35.0"
+version = "0.36.1"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -1733,13 +1728,14 @@ dependencies = [
  "tokio-tungstenite 0.19.0",
  "tokio-util",
  "tungstenite 0.19.0",
+ "url",
  "uuid",
  "warp",
 ]
 
 [[package]]
 name = "libsignal-node"
-version = "0.35.0"
+version = "0.36.1"
 dependencies = [
  "async-trait",
  "cmake",
@@ -1790,6 +1786,25 @@ dependencies = [
  "thiserror",
  "uuid",
  "x25519-dalek",
+]
+
+[[package]]
+name = "libsignal-svr3"
+version = "0.1.0"
+dependencies = [
+ "attest",
+ "bytemuck",
+ "criterion",
+ "curve25519-dalek",
+ "displaydoc",
+ "hex",
+ "hex-literal",
+ "hkdf",
+ "libsignal-net",
+ "rand",
+ "rand_core",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]

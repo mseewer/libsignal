@@ -3,30 +3,57 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 
+use std::default::Default;
 use std::fmt::Display;
 use std::num::{NonZeroU64, ParseIntError};
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use attest::cds2;
-use libsignal_protocol::{Aci, Pni};
 use prost::Message as _;
 use thiserror::Error;
+use tokio::net::TcpStream;
+use tokio_boring::SslStream;
 use uuid::Uuid;
 
-use crate::infra::connection_manager::{ConnectionAttemptOutcome, ConnectionManager};
-use crate::infra::errors::NetError;
-use crate::infra::ws::{
-    connect_websocket, AttestedConnection, AttestedConnectionError, NextOrClose, WebSocket,
-};
-use crate::infra::TcpSslTransportConnector;
+use attest::cds2;
+use libsignal_protocol::{Aci, Pni};
 
+use crate::infra::connection_manager::ConnectionManager;
+use crate::infra::errors::NetError;
+use crate::infra::reconnect::{ServiceConnectorWithDecorator, ServiceInitializer, ServiceState};
+use crate::infra::ws::{
+    AttestedConnection, AttestedConnectionError, NextOrClose, WebSocketClientConnector,
+};
+use crate::infra::{AsyncDuplexStream, TransportConnector};
 use crate::proto::cds2::{ClientRequest, ClientResponse};
-use crate::utils::{basic_authorization, timeout};
+use crate::utils::basic_authorization;
 
 pub struct Auth {
     pub username: String,
     pub password: String,
+}
+
+trait FixedLengthSerializable {
+    const SERIALIZED_LEN: usize;
+
+    // TODO: when feature(generic_const_exprs) is stabilized, make the target an
+    // array reference instead of a slice.
+    fn serialize_into(&self, target: &mut [u8]);
+}
+
+trait CollectSerialized {
+    fn collect_serialized(self) -> Vec<u8>;
+}
+
+impl<It: ExactSizeIterator<Item = T>, T: FixedLengthSerializable> CollectSerialized for It {
+    fn collect_serialized(self) -> Vec<u8> {
+        let mut output = vec![0; T::SERIALIZED_LEN * self.len()];
+        for (item, chunk) in self.zip(output.chunks_mut(T::SERIALIZED_LEN)) {
+            item.serialize_into(chunk)
+        }
+
+        output
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -35,6 +62,10 @@ pub struct E164(NonZeroU64);
 impl E164 {
     pub const fn new(number: NonZeroU64) -> Self {
         Self(number)
+    }
+
+    fn from_serialized(bytes: [u8; E164::SERIALIZED_LEN]) -> Option<Self> {
+        NonZeroU64::new(u64::from_be_bytes(bytes)).map(Self)
     }
 }
 
@@ -52,15 +83,11 @@ impl Display for E164 {
     }
 }
 
-impl E164 {
+impl FixedLengthSerializable for E164 {
     const SERIALIZED_LEN: usize = 8;
 
-    pub fn serialize_into(&self, target: &mut [u8; Self::SERIALIZED_LEN]) {
+    fn serialize_into(&self, target: &mut [u8]) {
         target.copy_from_slice(&self.0.get().to_be_bytes())
-    }
-
-    fn from_serialized(bytes: [u8; E164::SERIALIZED_LEN]) -> Option<Self> {
-        NonZeroU64::new(u64::from_be_bytes(bytes)).map(Self)
     }
 }
 
@@ -69,10 +96,10 @@ pub struct AciAndAccessKey {
     pub access_key: [u8; 16],
 }
 
-impl AciAndAccessKey {
+impl FixedLengthSerializable for AciAndAccessKey {
     const SERIALIZED_LEN: usize = 32;
 
-    pub fn serialize_into(&self, target: &mut [u8; Self::SERIALIZED_LEN]) {
+    fn serialize_into(&self, target: &mut [u8]) {
         let uuid_bytes = Uuid::from(self.aci).into_bytes();
 
         target[0..uuid_bytes.len()].copy_from_slice(&uuid_bytes);
@@ -82,46 +109,43 @@ impl AciAndAccessKey {
 
 #[derive(Default)]
 pub struct LookupRequest {
-    pub e164s: Vec<E164>,
+    pub new_e164s: Vec<E164>,
+    pub prev_e164s: Vec<E164>,
     pub acis_and_access_keys: Vec<AciAndAccessKey>,
     pub return_acis_without_uaks: bool,
+    pub token: Box<[u8]>,
 }
 
 impl LookupRequest {
     fn into_client_request(self) -> ClientRequest {
         let Self {
-            e164s,
+            new_e164s,
+            prev_e164s,
             acis_and_access_keys,
             return_acis_without_uaks,
+            token,
         } = self;
 
-        let mut aci_uak_pairs =
-            vec![0; acis_and_access_keys.len() * AciAndAccessKey::SERIALIZED_LEN];
-        for (aci_and_access_key, chunk) in acis_and_access_keys
-            .iter()
-            .zip(aci_uak_pairs.chunks_mut(AciAndAccessKey::SERIALIZED_LEN))
-        {
-            aci_and_access_key
-                .serialize_into(chunk.try_into().expect("chunk size chosen correctly"));
-        }
-
-        let mut new_e164s = vec![0; e164s.len() * E164::SERIALIZED_LEN];
-        for (e164, chunk) in e164s.iter().zip(new_e164s.chunks_mut(E164::SERIALIZED_LEN)) {
-            e164.serialize_into(chunk.try_into().expect("chunk size chosen correctly"))
-        }
+        let aci_uak_pairs = acis_and_access_keys.into_iter().collect_serialized();
+        let new_e164s = new_e164s.into_iter().collect_serialized();
+        let prev_e164s = prev_e164s.into_iter().collect_serialized();
 
         ClientRequest {
             aci_uak_pairs,
             new_e164s,
+            prev_e164s,
             return_acis_without_uaks,
+            token: token.into_vec(),
             token_ack: false,
             // TODO: use these for supporting non-desktop client requirements.
-            prev_e164s: Vec::new(),
             discard_e164s: Vec::new(),
-            token: Vec::new(),
         }
     }
 }
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct Token(pub Box<[u8]>);
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -138,7 +162,7 @@ pub struct LookupResponseEntry {
 }
 
 #[derive(Debug, PartialEq)]
-enum LookupResponseParseError {
+pub enum LookupResponseParseError {
     InvalidNumberOfBytes { actual_length: usize },
 }
 
@@ -150,8 +174,10 @@ impl From<LookupResponseParseError> for Error {
     }
 }
 
-impl LookupResponse {
-    fn try_from_response(response: ClientResponse) -> Result<Self, LookupResponseParseError> {
+impl TryFrom<ClientResponse> for LookupResponse {
+    type Error = LookupResponseParseError;
+
+    fn try_from(response: ClientResponse) -> Result<Self, Self::Error> {
         let ClientResponse {
             e164_pni_aci_triples,
             token: _,
@@ -201,7 +227,7 @@ impl LookupResponseEntry {
     }
 }
 
-pub struct CdsiConnection(AttestedConnection);
+pub struct CdsiConnection<S>(AttestedConnection<S>);
 
 #[derive(Debug, Error, displaydoc::Display)]
 pub enum Error {
@@ -246,42 +272,30 @@ impl RateLimitExceededResponse {
     const CLOSE_CODE: u16 = 4008;
 }
 
-impl CdsiConnection {
+pub struct ClientResponseCollector<S = SslStream<TcpStream>>(CdsiConnection<S>);
+
+impl<S: AsyncDuplexStream> CdsiConnection<S> {
     /// Connect to remote host and verify remote attestation.
-    pub(crate) async fn connect(
-        env: &impl CdsiConnectionParams,
-        auth: Auth,
-    ) -> Result<Self, Error> {
+    pub async fn connect<P, T>(env: &P, auth: Auth) -> Result<Self, Error>
+    where
+        P: CdsiConnectionParams<TransportConnector = T>,
+        T: TransportConnector<Stream = S>,
+    {
         let Auth { username, password } = auth;
         let header_auth_decorator = crate::infra::HttpRequestDecorator::HeaderAuth(
             basic_authorization(&username, &password),
         );
-        let endpoint = env.endpoint();
         let connection_manager = env.connection_manager();
-
-        let websocket = {
-            match connection_manager
-                .connect_or_wait(|connection_params| async {
-                    let connection_params = connection_params
-                        .clone()
-                        .with_decorator(header_auth_decorator.clone());
-                    connect_websocket(
-                        &connection_params,
-                        endpoint.clone(),
-                        Default::default(),
-                        &TcpSslTransportConnector,
-                    )
-                    .await
-                })
-                .await
-            {
-                ConnectionAttemptOutcome::Attempted(connection) => connection.map_err(Into::into),
-                ConnectionAttemptOutcome::TimedOut | ConnectionAttemptOutcome::WaitUntil(_) => {
-                    Err(NetError::Timeout)
-                }
-            }
+        let connector = ServiceConnectorWithDecorator::new(env.connector(), header_auth_decorator);
+        let service_initializer = ServiceInitializer::new(&connector, connection_manager);
+        let connection_attempt_result = service_initializer.connect().await;
+        let websocket = match connection_attempt_result {
+            ServiceState::Active(websocket, _) => Ok(websocket),
+            ServiceState::Cooldown(_) => Err(Error::Net(NetError::NoServiceConnection)),
+            ServiceState::Error(e) => Err(Error::Net(e)),
+            ServiceState::TimedOut => Err(Error::Net(NetError::Timeout)),
         }?;
-        let attested = AttestedConnection::connect(WebSocket::new(websocket), |attestation_msg| {
+        let attested = AttestedConnection::connect(websocket, |attestation_msg| {
             cds2::new_handshake(env.mr_enclave(), attestation_msg, SystemTime::now())
         })
         .await?;
@@ -289,8 +303,11 @@ impl CdsiConnection {
         Ok(Self(attested))
     }
 
-    pub async fn send_request(&mut self, request: ClientRequest) -> Result<ClientResponse, Error> {
-        self.0.send(request).await?;
+    pub async fn send_request(
+        mut self,
+        request: LookupRequest,
+    ) -> Result<(Token, ClientResponseCollector<S>), Error> {
+        self.0.send(request.into_client_request()).await?;
         let token_response: ClientResponse = match self.0.receive().await? {
             NextOrClose::Next(response) => response,
             NextOrClose::Close(close) => {
@@ -313,17 +330,29 @@ impl CdsiConnection {
             return Err(Error::Protocol);
         }
 
+        Ok((
+            Token(token_response.token.into_boxed_slice()),
+            ClientResponseCollector(self),
+        ))
+    }
+}
+
+impl<S: AsyncDuplexStream> ClientResponseCollector<S> {
+    pub async fn collect(self) -> Result<LookupResponse, Error> {
+        let Self(mut connection) = self;
+
         let token_ack = ClientRequest {
             token_ack: true,
             ..Default::default()
         };
 
-        self.0.send(token_ack).await?;
-        let mut response: ClientResponse = self.0.receive().await?.next_or(Error::Protocol)?;
-        while let NextOrClose::Next(decoded) = self.0.receive_bytes().await? {
+        connection.0.send(token_ack).await?;
+        let mut response: ClientResponse =
+            connection.0.receive().await?.next_or(Error::Protocol)?;
+        while let NextOrClose::Next(decoded) = connection.0.receive_bytes().await? {
             response.merge(decoded.as_ref()).map_err(Error::from)?;
         }
-        Ok(response)
+        Ok(response.try_into()?)
     }
 }
 
@@ -331,39 +360,25 @@ pub trait CdsiConnectionParams {
     /// The type returned by `connection_manager`.
     type ConnectionManager: ConnectionManager;
 
+    /// The `TransportConnector` used by the `WebSocketClientConnector`
+    type TransportConnector: TransportConnector;
+
     /// A connection manager with routes to the remote CDSI service.
     fn connection_manager(&self) -> &Self::ConnectionManager;
 
-    /// The path and query to use when initiating a websocket connection.
-    fn endpoint(&self) -> http::uri::PathAndQuery;
+    /// A connector for websocket protocol
+    fn connector(&self) -> &WebSocketClientConnector<Self::TransportConnector>;
 
     /// The signature of the remote enclave for verifying attestation.
     fn mr_enclave(&self) -> &[u8];
 }
 
-pub async fn cdsi_lookup(
-    auth: Auth,
-    cdsi: &impl CdsiConnectionParams,
-    request: LookupRequest,
-    action_timeout: Duration,
-) -> Result<LookupResponse, Error> {
-    let client_request = request.into_client_request();
-    let mut connected = CdsiConnection::connect(cdsi, auth).await?;
-    let response = timeout(
-        action_timeout,
-        NetError::Timeout.into(),
-        connected.send_request(client_request),
-    )
-    .await?;
-
-    LookupResponse::try_from_response(response).map_err(Into::into)
-}
-
 #[cfg(test)]
 mod test {
     use hex_literal::hex;
-    use libsignal_protocol::{Aci, Pni};
     use uuid::Uuid;
+
+    use libsignal_protocol::{Aci, Pni};
 
     use super::*;
 
@@ -386,11 +401,12 @@ mod test {
                 .cloned()
                 .collect();
 
-        let parsed = LookupResponse::try_from_response(ClientResponse {
+        let parsed = ClientResponse {
             e164_pni_aci_triples,
             token: vec![],
             debug_permits_used: 0,
-        });
+        }
+        .try_into();
         assert_eq!(
             parsed,
             Ok(LookupResponse {
@@ -403,6 +419,46 @@ mod test {
                     NUM_REPEATS
                 ]
             })
+        );
+    }
+
+    #[test]
+    fn serialize_e164s() {
+        let e164s: Vec<E164> = (18005551001..)
+            .take(5)
+            .map(|n| E164(NonZeroU64::new(n).unwrap()))
+            .collect();
+        let serialized = e164s.into_iter().collect_serialized();
+
+        assert_eq!(
+            serialized.as_slice(),
+            &hex!(
+                "000000043136e799"
+                "000000043136e79a"
+                "000000043136e79b"
+                "000000043136e79c"
+                "000000043136e79d"
+            )
+        );
+    }
+
+    #[test]
+    fn serialize_acis_and_access_keys() {
+        let pairs = [1, 2, 3, 4, 5].map(|i| AciAndAccessKey {
+            access_key: [i; 16],
+            aci: Aci::from_uuid_bytes([i | 0x80; 16]),
+        });
+        let serialized = pairs.into_iter().collect_serialized();
+
+        assert_eq!(
+            serialized.as_slice(),
+            &hex!(
+                "8181818181818181818181818181818101010101010101010101010101010101"
+                "8282828282828282828282828282828202020202020202020202020202020202"
+                "8383838383838383838383838383838303030303030303030303030303030303"
+                "8484848484848484848484848484848404040404040404040404040404040404"
+                "8585858585858585858585858585858505050505050505050505050505050505"
+            )
         );
     }
 }

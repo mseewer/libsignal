@@ -6,9 +6,29 @@
 
 use std::time::Duration;
 
+use tokio::io::AsyncBufReadExt as _;
+
 use libsignal_net::cdsi::*;
 use libsignal_net::env::CdsiEndpointConnection;
-use tokio::io::AsyncBufReadExt as _;
+use libsignal_net::infra::errors::NetError;
+use libsignal_net::infra::TcpSslTransportConnector;
+
+async fn cdsi_lookup(
+    auth: Auth,
+    cdsi: &impl CdsiConnectionParams,
+    request: LookupRequest,
+    timeout: Duration,
+) -> Result<LookupResponse, Error> {
+    let connected = CdsiConnection::connect(cdsi, auth).await?;
+    let (_token, remaining_response) = libsignal_net::utils::timeout(
+        timeout,
+        Error::Net(NetError::Timeout),
+        connected.send_request(request),
+    )
+    .await?;
+
+    remaining_response.collect().await
+}
 
 #[tokio::main]
 async fn main() {
@@ -16,22 +36,23 @@ async fn main() {
 
     let username = std::env::var("USERNAME").unwrap();
     let password = std::env::var("PASSWORD").unwrap();
-    let mut e164s = vec![];
+    let mut new_e164s = vec![];
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
 
     while let Some(line) = lines.next_line().await.unwrap() {
-        e164s.push(line.parse().unwrap());
+        new_e164s.push(line.parse().unwrap());
     }
 
     let request = LookupRequest {
-        e164s,
+        new_e164s,
         acis_and_access_keys: vec![],
         return_acis_without_uaks: true,
+        ..Default::default()
     };
     let env = &libsignal_net::env::PROD;
     let cdsi_response = cdsi_lookup(
         Auth { username, password },
-        &CdsiEndpointConnection::new(env.cdsi, Duration::from_secs(10)),
+        &CdsiEndpointConnection::new(env.cdsi, Duration::from_secs(10), TcpSslTransportConnector),
         request,
         Duration::from_secs(10),
     )
