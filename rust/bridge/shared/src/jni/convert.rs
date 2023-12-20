@@ -11,6 +11,7 @@ use libsignal_protocol::*;
 
 use paste::paste;
 
+use std::num::ParseIntError;
 use std::ops::Deref;
 
 use crate::io::{InputStream, SyncInputStream};
@@ -258,6 +259,17 @@ impl<'a> SimpleArgTypeInfo<'a> for uuid::Uuid {
     }
 }
 
+impl<'a> SimpleArgTypeInfo<'a> for libsignal_net::cdsi::E164 {
+    type ArgType = <String as SimpleArgTypeInfo<'a>>::ArgType;
+    fn convert_from(env: &mut JNIEnv<'a>, foreign: &Self::ArgType) -> SignalJniResult<Self> {
+        let e164 = String::convert_from(env, foreign)?;
+        let e164 = e164.parse().map_err(|_: ParseIntError| {
+            SignalProtocolError::InvalidArgument(format!("{e164} is not an e164"))
+        })?;
+        Ok(e164)
+    }
+}
+
 impl<'storage, 'param: 'storage, 'context: 'param> ArgTypeInfo<'storage, 'param, 'context>
     for &'storage [u8]
 {
@@ -309,6 +321,25 @@ impl<'storage, 'param: 'storage, 'context: 'param> ArgTypeInfo<'storage, 'param,
     fn load_from(stored: &'storage mut Self::StoredType) -> &'storage mut [u8] {
         // Deref `stored` to the contained slice of [jbyte] ([i8]), then cast that to [u8].
         bytemuck::cast_slice_mut(stored)
+    }
+}
+
+impl<'storage, 'param: 'storage, 'context: 'param> ArgTypeInfo<'storage, 'param, 'context>
+    for crate::protocol::ServiceIdSequence<'storage>
+{
+    type ArgType = JByteArray<'context>;
+    type StoredType = AutoElements<'context, 'context, 'param, jbyte>;
+
+    fn borrow(
+        env: &mut JNIEnv<'context>,
+        foreign: &'param Self::ArgType,
+    ) -> SignalJniResult<Self::StoredType> {
+        <&'storage [u8]>::borrow(env, foreign)
+    }
+
+    fn load_from(stored: &'storage mut Self::StoredType) -> Self {
+        let buffer = <&'storage [u8]>::load_from(stored);
+        Self::parse(buffer)
     }
 }
 
@@ -993,11 +1024,17 @@ macro_rules! jni_arg_type {
     (Pni) => {
         jni::JByteArray<'local>
     };
+    (ServiceIdSequence<'_>) => {
+        jni::JByteArray<'local>
+    };
     (Timestamp) => {
         jni::jlong
     };
     (Uuid) => {
         jni::JavaUUID<'local>
+    };
+    (E164) => {
+        jni::JString<'local>
     };
     (jni::CiphertextMessageRef) => {
         jni::JavaCiphertextMessage<'local>

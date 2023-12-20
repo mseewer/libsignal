@@ -1,10 +1,11 @@
 {
   "name": "@signalapp/libsignal-client",
-  "version": "0.36.1",
+  "version": "0.37.0",
   "license": "AGPL-3.0-only",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
+    "dist/acknowledgments.md",
     "dist/*.js",
     "dist/*.d.ts",
     "dist/zkgroup/**/*.js",
@@ -22,7 +23,8 @@
     "clean": "rimraf dist build prebuilds",
     "test": "mocha --recursive dist/test --require source-map-support/register",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "format": "p() { prettier ${@:- --write} '**/*.{css,js,json,md,scss,ts,tsx}'; }; p"
+    "format": "p() { prettier ${@:- --write} '**/*.{css,js,json,md,scss,ts,tsx}'; }; p",
+    "prepack": "cp ../acknowledgments/acknowledgments.md dist"
   },
   "dependencies": {
     "node-gyp-build": "^4.2.3",

@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 
 use std::hash::Hasher;
+use std::num::ParseIntError;
 use std::ops::{Deref, DerefMut, RangeInclusive};
 use std::slice;
 
@@ -335,6 +336,15 @@ impl SimpleArgTypeInfo for libsignal_protocol::Pni {
     }
 }
 
+impl SimpleArgTypeInfo for libsignal_net::cdsi::E164 {
+    type ArgType = <String as SimpleArgTypeInfo>::ArgType;
+    fn convert_from(cx: &mut FunctionContext, e164: Handle<Self::ArgType>) -> NeonResult<Self> {
+        let e164 = String::convert_from(cx, e164)?;
+        e164.parse()
+            .or_else(|_: ParseIntError| cx.throw_type_error("not an E164"))
+    }
+}
+
 impl SimpleArgTypeInfo for bool {
     type ArgType = JsBoolean;
     fn convert_from(cx: &mut FunctionContext, foreign: Handle<Self::ArgType>) -> NeonResult<Self> {
@@ -543,6 +553,38 @@ impl<'a> AsyncArgTypeInfo<'a> for &'a [u8] {
     }
     fn load_async_arg(stored: &'a mut Self::StoredType) -> Self {
         &*stored
+    }
+}
+
+/// See [`AssumedImmutableBuffer`].
+impl<'storage, 'context: 'storage> ArgTypeInfo<'storage, 'context>
+    for crate::protocol::ServiceIdSequence<'storage>
+{
+    type ArgType = JsBuffer;
+    type StoredType = AssumedImmutableBuffer<'context>;
+    fn borrow(
+        cx: &mut FunctionContext,
+        foreign: Handle<'context, Self::ArgType>,
+    ) -> NeonResult<Self::StoredType> {
+        Ok(AssumedImmutableBuffer::new(cx, foreign))
+    }
+    fn load_from(stored: &'storage mut Self::StoredType) -> Self {
+        Self::parse(&*stored)
+    }
+}
+
+/// See [`PersistentAssumedImmutableBuffer`].
+impl<'a> AsyncArgTypeInfo<'a> for crate::protocol::ServiceIdSequence<'a> {
+    type ArgType = JsBuffer;
+    type StoredType = PersistentAssumedImmutableBuffer;
+    fn save_async_arg(
+        cx: &mut FunctionContext,
+        foreign: Handle<Self::ArgType>,
+    ) -> NeonResult<Self::StoredType> {
+        Ok(PersistentAssumedImmutableBuffer::new(cx, foreign))
+    }
+    fn load_async_arg(stored: &'a mut Self::StoredType) -> Self {
+        Self::parse(&*stored)
     }
 }
 

@@ -51,6 +51,7 @@ jobs:
           - '.clippy.toml'
           - '.rustfmt.license-template'
           - '.rustfmt.toml'
+          - 'acknowledgments/**'
           - 'rust/**' # deliberately re-include rust/bridge/* and rust/protocol/cross-version-testing
           java:
           - *all
@@ -77,6 +78,7 @@ jobs:
           - '.github/stale.yml'
           - '.github/workflows/**'
           - '.gitignore'
+          - '.gitattributes'
 
     - name: Check pattern completeness
       run: echo "::error file=.github/workflows/build_and_test.yml::File not included in any filter" && false
@@ -107,6 +109,17 @@ jobs:
     - run: rustup toolchain install $(cat rust-toolchain) --profile minimal --component rustfmt,clippy
       if: matrix.version == 'nightly'
 
+    - name: Cache locally-built tools
+      id: cache-primes
+      uses: actions/cache@v3
+      with:
+        path: local-tools
+        key: ${{ runner.os }}-local-tools-${{ matrix.version }}
+
+    - name: Build cargo-about if needed
+      run: cargo +stable install --version 0.6.0 --locked cargo-about --root local-tools
+      if: matrix.version == 'nightly'
+
     # This should be done before anything else
     # because it also checks that the lockfile is up to date.
     - name: Check for duplicate dependencies
@@ -124,6 +137,10 @@ jobs:
 
     - name: Check bridge versioning
       run: ./bin/update_versions.py
+      if: matrix.version == 'nightly'
+
+    - name: Check acknowledgments
+      run: PATH="$PATH:$PWD/local-tools/bin" ./bin/regenerate_acknowledgments.sh && git diff --name-status --exit-code acknowledgments
       if: matrix.version == 'nightly'
 
     - name: Build
@@ -220,7 +237,11 @@ jobs:
     - name: Verify that the JNI bindings are up to date
       run: rust/bridge/jni/bin/gen_java_decl.py --verify
 
-    - run: ./gradlew build assembleDebugAndroidTest
+    - run: ./gradlew build assembleDebugAndroidTest | tee ./gradle-output.txt
+      working-directory: java
+
+    # Check for -Xcheck:jni warnings manually; Gradle doesn't capture them for some reason.
+    - run: "! grep WARNING ./gradle-output.txt"
       working-directory: java
 
     - run: java/check_code_size.py

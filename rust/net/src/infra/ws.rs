@@ -28,6 +28,9 @@ use crate::infra::reconnect::{ServiceConnector, ServiceStatus};
 use crate::infra::{AsyncDuplexStream, ConnectionParams, TransportConnector};
 use crate::utils::timeout;
 
+pub mod error;
+pub use error::Error;
+
 const WS_ALPN: &[u8] = b"\x08http/1.1";
 
 #[derive(Debug, Clone)]
@@ -171,15 +174,25 @@ impl<S: AsyncDuplexStream> WebSocketClientReader<S> {
                         continue;
                     }
                     Event::Message(maybe_message) => maybe_message,
-                    Event::StopService => return Err(NetError::ChannelClosed),
-                    Event::IdleTimeout => return Err(NetError::ChannelIdle),
+                    Event::StopService => {
+                        log::info!("service was stopped");
+                        return Err(NetError::ChannelClosed);
+                    }
+                    Event::IdleTimeout => {
+                        log::warn!("channel was idle for {}s", self.max_idle_time.as_secs());
+                        return Err(NetError::ChannelIdle);
+                    }
                 };
                 // now checking if whatever we've read from the stream is a message
                 let message = match maybe_message {
                     None | Some(Err(tungstenite::Error::ConnectionClosed)) => {
-                        return Ok(NextOrClose::Close(None))
+                        log::warn!("websocket connection was unexpectedly closed");
+                        return Ok(NextOrClose::Close(None));
                     }
-                    Some(Err(e)) => return Err(e.into()),
+                    Some(Err(e)) => {
+                        log::trace!("websocket error: {e}");
+                        return Err(e.into());
+                    }
                     Some(Ok(message)) => message,
                 };
                 // finally, looking at the type of the message

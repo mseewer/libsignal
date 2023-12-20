@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 
-use libc::{c_char, c_uchar};
 use libsignal_protocol::*;
 use paste::paste;
 
-use std::ffi::CStr;
+use std::ffi::{c_char, c_uchar, CStr};
+use std::num::ParseIntError;
 use std::ops::Deref;
 
 use crate::io::{InputStream, SyncInputStream};
@@ -41,7 +41,7 @@ use super::*;
 ///
 /// Implementers should also see the `ffi_arg_type` macro in `convert.rs`.
 pub trait ArgTypeInfo<'storage>: Sized {
-    /// The FFI form of the argument (e.g. `libc::c_uchar`).
+    /// The FFI form of the argument (e.g. `std::ffi::c_uchar`).
     type ArgType;
     /// Local storage for the argument (ideally borrowed rather than copied).
     type StoredType: 'storage;
@@ -75,7 +75,7 @@ pub trait ArgTypeInfo<'storage>: Sized {
 ///
 /// However, some types do need the full flexibility of `ArgTypeInfo`.
 pub trait SimpleArgTypeInfo: Sized {
-    /// The FFI form of the argument (e.g. `libc::c_uchar`).
+    /// The FFI form of the argument (e.g. `std::ffi::c_uchar`).
     type ArgType;
     /// Converts the data in `foreign` to the Rust type.
     fn convert_from(foreign: Self::ArgType) -> SignalFfiResult<Self>;
@@ -115,7 +115,7 @@ where
 ///
 /// Implementers should also see the `ffi_result_type` macro in `convert.rs`.
 pub trait ResultTypeInfo: Sized {
-    /// The FFI form of the result (e.g. `libc::c_uchar`).
+    /// The FFI form of the result (e.g. `std::ffi::c_uchar`).
     type ResultType;
     /// Converts the data in `self` to the FFI type, similar to `try_into()`.
     fn convert_into(self) -> SignalFfiResult<Self::ResultType>;
@@ -144,6 +144,20 @@ impl<'a> ArgTypeInfo<'a> for &'a mut [u8] {
     }
     fn load_from(stored: &'a mut Self::StoredType) -> Self {
         unsafe { stored.as_slice_mut().expect("checked earlier") }
+    }
+}
+
+impl<'a> ArgTypeInfo<'a> for crate::protocol::ServiceIdSequence<'a> {
+    type ArgType = <&'a [u8] as ArgTypeInfo<'a>>::ArgType;
+    type StoredType = Self::ArgType;
+
+    fn borrow(foreign: Self::ArgType) -> SignalFfiResult<Self::StoredType> {
+        <&'a [u8]>::borrow(foreign)
+    }
+
+    fn load_from(stored: &'a mut Self::StoredType) -> Self {
+        let buffer = <&'a [u8]>::load_from(stored);
+        Self::parse(buffer)
     }
 }
 
@@ -264,6 +278,17 @@ impl SimpleArgTypeInfo for libsignal_protocol::Pni {
     }
 }
 
+impl SimpleArgTypeInfo for libsignal_net::cdsi::E164 {
+    type ArgType = <String as SimpleArgTypeInfo>::ArgType;
+    fn convert_from(e164: Self::ArgType) -> SignalFfiResult<Self> {
+        let e164 = String::convert_from(e164)?;
+        let parsed = e164.parse().map_err(|_: ParseIntError| {
+            SignalProtocolError::InvalidArgument(format!("{e164} is not an e164"))
+        })?;
+        Ok(parsed)
+    }
+}
+
 impl<const LEN: usize> SimpleArgTypeInfo for &'_ [u8; LEN] {
     type ArgType = *const [u8; LEN];
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -324,7 +349,7 @@ where
 
 /// Allocates and returns a new Rust-owned C string.
 impl ResultTypeInfo for String {
-    type ResultType = *const libc::c_char;
+    type ResultType = *const std::ffi::c_char;
     fn convert_into(self) -> SignalFfiResult<Self::ResultType> {
         self.deref().convert_into()
     }
@@ -332,7 +357,7 @@ impl ResultTypeInfo for String {
 
 /// Allocates and returns a new Rust-owned C string (or `NULL`).
 impl ResultTypeInfo for Option<String> {
-    type ResultType = *const libc::c_char;
+    type ResultType = *const std::ffi::c_char;
     fn convert_into(self) -> SignalFfiResult<Self::ResultType> {
         self.as_deref().convert_into()
     }
@@ -340,7 +365,7 @@ impl ResultTypeInfo for Option<String> {
 
 /// Allocates and returns a new Rust-owned C string.
 impl ResultTypeInfo for &str {
-    type ResultType = *const libc::c_char;
+    type ResultType = *const std::ffi::c_char;
     fn convert_into(self) -> SignalFfiResult<Self::ResultType> {
         let cstr = CString::new(self).expect("No NULL characters in string being returned to C");
         Ok(cstr.into_raw())
@@ -349,7 +374,7 @@ impl ResultTypeInfo for &str {
 
 /// Allocates and returns a new Rust-owned C string (or `NULL`).
 impl ResultTypeInfo for Option<&str> {
-    type ResultType = *const libc::c_char;
+    type ResultType = *const std::ffi::c_char;
     fn convert_into(self) -> SignalFfiResult<Self::ResultType> {
         match self {
             Some(s) => s.convert_into(),
@@ -359,14 +384,14 @@ impl ResultTypeInfo for Option<&str> {
 }
 
 impl ResultTypeInfo for Vec<u8> {
-    type ResultType = OwnedBufferOf<libc::c_uchar>;
+    type ResultType = OwnedBufferOf<std::ffi::c_uchar>;
     fn convert_into(self) -> SignalFfiResult<Self::ResultType> {
         Ok(OwnedBufferOf::from(self.into_boxed_slice()))
     }
 }
 
 impl ResultTypeInfo for &[u8] {
-    type ResultType = OwnedBufferOf<libc::c_uchar>;
+    type ResultType = OwnedBufferOf<std::ffi::c_uchar>;
     fn convert_into(self) -> SignalFfiResult<Self::ResultType> {
         self.to_vec().convert_into()
     }
@@ -534,8 +559,12 @@ macro_rules! ffi_bridge_handle {
     ( $typ:ty as $ffi_name:ident ) => {
         ffi_bridge_handle!($typ as $ffi_name, clone = false);
         paste! {
-            #[no_mangle]
-            pub unsafe extern "C" fn [<signal_ $ffi_name _clone>](
+            #[export_name = concat!(
+                env!("LIBSIGNAL_BRIDGE_FN_PREFIX_FFI"),
+                stringify!($ffi_name),
+                "_clone",
+            )]
+            pub unsafe extern "C" fn [<__bridge_handle_ffi_ $ffi_name _clone>](
                 new_obj: *mut *mut $typ,
                 obj: *const $typ,
             ) -> *mut ffi::SignalFfiError {
@@ -589,18 +618,20 @@ macro_rules! ffi_arg_type {
     (u32) => (u32);
     (u64) => (u64);
     (Option<u32>) => (u32);
-    (usize) => (libc::size_t);
+    (usize) => (usize);
     (bool) => (bool);
-    (&[u8]) => (ffi::BorrowedSliceOf<libc::c_uchar>);
-    (&mut [u8]) => (ffi::BorrowedMutableSliceOf<libc::c_uchar>);
-    (String) => (*const libc::c_char);
-    (Option<String>) => (*const libc::c_char);
-    (Option<&str>) => (*const libc::c_char);
+    (&[u8]) => (ffi::BorrowedSliceOf<std::ffi::c_uchar>);
+    (&mut [u8]) => (ffi::BorrowedMutableSliceOf<std::ffi::c_uchar>);
+    (ServiceIdSequence<'_>) => (ffi::BorrowedSliceOf<std::ffi::c_uchar>);
+    (String) => (*const std::ffi::c_char);
+    (Option<String>) => (*const std::ffi::c_char);
+    (Option<&str>) => (*const std::ffi::c_char);
     (Timestamp) => (u64);
     (Uuid) => (*const [u8; 16]);
     (ServiceId) => (*const libsignal_protocol::ServiceIdFixedWidthBinaryBytes);
     (Aci) => (*const libsignal_protocol::ServiceIdFixedWidthBinaryBytes);
     (Pni) => (*const libsignal_protocol::ServiceIdFixedWidthBinaryBytes);
+    (E164) => (*const std::ffi::c_char);
     (&[u8; $len:expr]) => (*const [u8; $len]);
     (&[& $typ:ty]) => (ffi::BorrowedSliceOf<*const $typ>);
     (&mut dyn $typ:ty) => (*const paste!(ffi::[<Ffi $typ Struct>]));
@@ -608,11 +639,11 @@ macro_rules! ffi_arg_type {
     (&mut $typ:ty) => (*mut $typ);
     (Option<& $typ:ty>) => (*const $typ);
 
-    (Ignored<$typ:ty>) => (*const libc::c_void);
+    (Ignored<$typ:ty>) => (*const std::ffi::c_void);
 
     // In order to provide a fixed-sized array of the correct length,
     // a serialized type FooBar must have a constant FOO_BAR_LEN that's in scope (and exposed to C).
-    (Serialized<$typ:ident>) => (*const [libc::c_uchar; paste!([<$typ:snake:upper _LEN>])]);
+    (Serialized<$typ:ident>) => (*const [std::ffi::c_uchar; paste!([<$typ:snake:upper _LEN>])]);
 }
 
 /// Syntactically translates `bridge_fn` result types to FFI types for `cbindgen`.
@@ -638,10 +669,10 @@ macro_rules! ffi_result_type {
     (Option<u32>) => (u32);
     (u64) => (u64);
     (bool) => (bool);
-    (&str) => (*const libc::c_char);
-    (String) => (*const libc::c_char);
-    (Option<String>) => (*const libc::c_char);
-    (Option<&str>) => (*const libc::c_char);
+    (&str) => (*const std::ffi::c_char);
+    (String) => (*const std::ffi::c_char);
+    (Option<String>) => (*const std::ffi::c_char);
+    (Option<&str>) => (*const std::ffi::c_char);
     (Option<$typ:ty>) => (*mut $typ);
     (Timestamp) => (u64);
     (Uuid) => ([u8; 16]);
@@ -649,14 +680,14 @@ macro_rules! ffi_result_type {
     (Aci) => (libsignal_protocol::ServiceIdFixedWidthBinaryBytes);
     (Pni) => (libsignal_protocol::ServiceIdFixedWidthBinaryBytes);
     ([u8; $len:expr]) => ([u8; $len]);
-    (&[u8]) => (ffi::OwnedBufferOf<libc::c_uchar>);
-    (Vec<u8>) => (ffi::OwnedBufferOf<libc::c_uchar>);
+    (&[u8]) => (ffi::OwnedBufferOf<std::ffi::c_uchar>);
+    (Vec<u8>) => (ffi::OwnedBufferOf<std::ffi::c_uchar>);
 
     // In order to provide a fixed-sized array of the correct length,
     // a serialized type FooBar must have a constant FOO_BAR_LEN that's in scope (and exposed to C).
-    (Serialized<$typ:ident>) => ([libc::c_uchar; paste!([<$typ:snake:upper _LEN>])]);
+    (Serialized<$typ:ident>) => ([std::ffi::c_uchar; paste!([<$typ:snake:upper _LEN>])]);
 
-    (Ignored<$typ:ty>) => (*const libc::c_void);
+    (Ignored<$typ:ty>) => (*const std::ffi::c_void);
 
     ( $typ:ty ) => (*mut $typ);
 }

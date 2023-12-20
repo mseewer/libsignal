@@ -22,7 +22,6 @@
 // https://doc.rust-lang.org/rustdoc/what-to-include.html for background.
 // #![warn(missing_docs)]
 
-mod address;
 mod consts;
 mod crypto;
 mod curve;
@@ -48,9 +47,10 @@ mod utils;
 
 use error::Result;
 
-pub use address::{
+pub use libsignal_core::{
     Aci, DeviceId, Pni, ProtocolAddress, ServiceId, ServiceIdFixedWidthBinaryBytes, ServiceIdKind,
 };
+
 pub use curve::{KeyPair, PrivateKey, PublicKey};
 pub use error::SignalProtocolError;
 pub use fingerprint::{DisplayableFingerprint, Fingerprint, ScannableFingerprint};

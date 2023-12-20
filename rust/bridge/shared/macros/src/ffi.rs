@@ -21,7 +21,7 @@ pub(crate) fn bridge_fn(
     // Scroll down to the end of the function to see the quote template.
     // This is the best way to understand what we're trying to produce.
 
-    let name = format_ident!("signal_{}", name);
+    let wrapper_name = format_ident!("__bridge_fn_ffi_{}", name);
 
     let input_names_and_types = extract_arg_names_and_types(sig)?;
 
@@ -46,7 +46,7 @@ pub(crate) fn bridge_fn(
             let output = result_type(&sig.output);
             quote!(
                 promise: ffi::CPromise<ffi_result_type!(#output)>,
-                promise_context: *const libc::c_void,
+                promise_context: *const std::ffi::c_void,
                 async_runtime: ffi_arg_type!(&#runtime), // note the trailing comma
             )
         }
@@ -59,8 +59,8 @@ pub(crate) fn bridge_fn(
 
     Ok(quote! {
         #[cfg(feature = "ffi")]
-        #[no_mangle]
-        pub unsafe extern "C" fn #name(
+        #[export_name = concat!(env!("LIBSIGNAL_BRIDGE_FN_PREFIX_FFI"), #name)]
+        pub unsafe extern "C" fn #wrapper_name(
             #implicit_args
             #(#input_args),*
         ) -> *mut ffi::SignalFfiError {

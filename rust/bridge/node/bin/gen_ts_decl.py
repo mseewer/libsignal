@@ -36,6 +36,8 @@ def translate_to_ts(typ):
         "ServiceId": "Buffer",
         "Aci": "Buffer",
         "Pni": "Buffer",
+        "E164": "string",
+        "ServiceIdSequence<'_>": "Buffer",
     }
 
     if typ in type_map:
